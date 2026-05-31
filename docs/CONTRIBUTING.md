@@ -64,19 +64,19 @@ git remote -v
 Follow this **every time** you work on a new feature or bugfix:
 
 ```
-┌─────────────────────────────────────────────────────┐
+┌───────────────────────────────────────────────────────┐
 │            THE CONTRIBUTION CYCLE                     │
-│                                                      │
-│  1. Sync main    →  git pull upstream main           │
-│  2. Create branch →  git checkout -b feat/xxx        │
-│  3. Write code   →  (edit files, test, repeat)       │
-│  4. Commit       →  git add + git commit             │
-│  5. Push         →  git push origin feat/xxx         │
-│  6. Open PR      →  GitHub → New Pull Request        │
-│  7. Get review   →  Address feedback, push fixes     │
-│  8. Merge!       →  Maintainer merges to main        │
-│  9. Clean up     →  Delete branch, sync main         │
-└─────────────────────────────────────────────────────┘
+│                                                       │
+│  1. Sync main    →  git pull upstream main            │
+│  2. Create branch →  git checkout -b feat/xxx         │
+│  3. Write code   →  (edit files, test, repeat)        │
+│  4. Commit       →  git add + git commit              │
+│  5. Push         →  git push origin feat/xxx          │
+│  6. Open PR      →  GitHub → New Pull Request         │
+│  7. Get review   →  Address feedback, push fixes      │
+│  8. Merge!       →  Maintainer merges to main         │
+│  9. Clean up     →  Delete branch, sync main          │
+└───────────────────────────────────────────────────────┘
 ```
 
 ### Step-by-step
