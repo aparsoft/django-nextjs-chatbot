@@ -1,10 +1,11 @@
 # /home/ram/aparsoft/backend/apps/accounts/api/views/profile_avatar_views.py
 
-"""
-Profile Avatar Views for AparSoft
+# accounts/api/views/profile_avatar_views.py
 
-This module handles avatar upload, update, and removal functionality
-with image optimization and security checks.
+"""
+Profile Avatar Views
+
+Handles avatar upload, update, and removal with image optimization.
 """
 
 from rest_framework import status
@@ -14,6 +15,7 @@ from rest_framework.views import APIView
 from django.contrib.auth import get_user_model
 from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
+from drf_spectacular.utils import extend_schema, extend_schema_view
 from PIL import Image
 import os
 import uuid
@@ -25,17 +27,40 @@ from ...utils.profile_picture_utils import (
     get_profile_picture_url,
     set_profile_picture,
     delete_profile_picture,
-    get_user_profile_data,
+)
+from ..serializers.response_serializers import (
+    AvatarResponseSerializer,
+    AvatarDeleteResponseSerializer,
 )
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
 
 
+@extend_schema_view(
+    get=extend_schema(
+        tags=["Profile"],
+        summary="Get avatar",
+        description="Retrieve the authenticated user's profile image URL.",
+        responses={200: AvatarResponseSerializer},
+    ),
+    post=extend_schema(
+        tags=["Profile"],
+        summary="Upload avatar",
+        description="Upload or update the authenticated user's profile avatar. Accepts JPEG, PNG, WebP up to 5 MB.",
+        request={"multipart/form": {"type": "object", "properties": {"profile_picture": {"type": "string", "format": "binary"}}}},
+        responses={200: AvatarResponseSerializer, 400: AvatarResponseSerializer},
+    ),
+    delete=extend_schema(
+        tags=["Profile"],
+        summary="Delete avatar",
+        description="Remove the authenticated user's profile avatar.",
+        responses={200: AvatarDeleteResponseSerializer},
+    ),
+)
 class ProfileAvatarView(APIView):
-    """
-    Handle avatar upload, update, and removal for user profiles.
-    """
+    """Handle avatar upload, update, and removal for user profiles."""
+
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
