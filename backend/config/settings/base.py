@@ -250,8 +250,8 @@ REST_FRAMEWORK = {
 }
 
 SPECTACULAR_SETTINGS = {
-    "TITLE": "ConvoInsight API",
-    "DESCRIPTION": "API for the ConvoInsight — Customer Conversational Intelligence Platform",
+    "TITLE": "Django + Next.js AI Chatbot API",
+    "DESCRIPTION": "API for the AI Chatbot platform — authentication, chat, documents, and analytics",
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
     "COMPONENT_SPLIT_REQUEST": True,
