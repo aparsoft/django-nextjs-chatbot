@@ -1,3 +1,5 @@
+# accounts/api/serializers/custom_user_serializers.py
+
 """
 Serializers for CustomUser model.
 Includes both full and minimal serializer representations.
@@ -65,8 +67,6 @@ class CustomUserMinimalSerializer(serializers.ModelSerializer):
             "email",
             "full_name",
             "role",
-            "role_status",
-            "subscription_tier",
             "is_active",
         ]
         read_only_fields = fields
@@ -88,13 +88,11 @@ class CustomUserSerializer(serializers.ModelSerializer):
             "last_name",
             "full_name",
             "role",
-            "role_status",
-            "subscription_tier",
-            "technical_skills",
-            "specializations",
+            "profile_picture",
             "email_verified",
             "phone_verified",
             "two_factor_enabled",
+            "last_password_change",
             "last_active",
             "login_count",
             "date_joined",
@@ -108,6 +106,7 @@ class CustomUserSerializer(serializers.ModelSerializer):
             "login_count",
             "email_verified",
             "phone_verified",
+            "last_password_change",
         ]
 
     def create(self, validated_data):
@@ -124,12 +123,10 @@ class CustomUserSerializer(serializers.ModelSerializer):
         """Update user and related contact if provided."""
         contact_data = self.context.get("contact_data")
 
-        # Update user fields
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
 
-        # Update contact if data provided
         if contact_data and hasattr(instance, "contact"):
             contact = instance.contact
             for attr, value in contact_data.items():
