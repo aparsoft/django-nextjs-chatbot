@@ -2,6 +2,10 @@
 
 Provides reusable factory methods for creating users and contacts
 with unique identifiers to avoid collisions when running with --keepdb.
+
+NOTE: A post_save signal on CustomUser auto-creates a UserContact when a
+user is created. The helpers below retrieve the signal-created contact
+instead of creating duplicates.
 """
 
 from django.contrib.auth import get_user_model
@@ -30,7 +34,10 @@ class AccountsTestMixin:
 
     @staticmethod
     def create_user(role="user", **kwargs):
-        """Create a basic user with unique username/email."""
+        """Create a basic user with unique username/email.
+
+        The post_save signal auto-creates a UserContact.
+        """
         n = _next_id()
         defaults = {
             "username": f"testuser_{n}",
@@ -83,19 +90,22 @@ class AccountsTestMixin:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def create_user_contact(user=None, **kwargs):
-        """Create a UserContact for the given user (or a new one)."""
-        if user is None:
-            user = AccountsTestMixin.create_user()
-        n = _next_id()
-        defaults = {
-            "user": user,
-            "city": f"City{n}",
-            "state": "TestState",
-            "timezone": "Asia/Kolkata",
-        }
-        defaults.update(kwargs)
-        return UserContact.objects.create(**defaults)
+    def get_user_contact(user):
+        """Retrieve the signal-created UserContact for a user.
+
+        The post_save signal on CustomUser auto-creates a UserContact,
+        so we just fetch it rather than creating a duplicate.
+        """
+        return user.contact
+
+    @staticmethod
+    def update_user_contact(user, **kwargs):
+        """Update the existing UserContact for a user with new values."""
+        contact = user.contact
+        for attr, value in kwargs.items():
+            setattr(contact, attr, value)
+        contact.save()
+        return contact
 
     @staticmethod
     def get_default_country():
