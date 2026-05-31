@@ -303,7 +303,8 @@ class PasswordChangeView(APIView):
     post=extend_schema(
         tags=["Authentication"],
         summary="Request Email Verification",
-        description="Send an email verification link to the authenticated user's address.",
+        description="Send an email verification link to the authenticated user's address. No request body required.",
+        request=None,
         responses={200: MessageResponseSerializer, 500: ErrorResponseSerializer},
     ),
     get=extend_schema(
