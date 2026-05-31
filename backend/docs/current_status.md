@@ -1,4 +1,4 @@
-# Current Status — ConvoInsight AI Chatbot
+# Current Status — Django + Next.js AI Chatbot
 
 > Snapshot of what's built, what's wired, and what's still a stub. Updated May 2026.
 
