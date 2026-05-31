@@ -121,32 +121,42 @@ class CustomUserModelTests(AccountsTestMixin, TestCase):
 
 
 class UserContactModelTests(AccountsTestMixin, TestCase):
-    """Tests for the UserContact model."""
+    """Tests for the UserContact model.
 
-    def test_create_contact(self):
-        """Contact creation with defaults works."""
+    NOTE: A post_save signal auto-creates a UserContact for each user.
+    Tests use get_user_contact() / update_user_contact() to work with
+    the signal-created records instead of creating duplicates.
+    """
+
+    def test_signal_creates_contact(self):
+        """Creating a user auto-creates a UserContact via signal."""
         user = self.create_user()
-        contact = self.create_user_contact(user=user)
-        self.assertEqual(contact.user, user)
-        self.assertIsNotNone(contact.city)
+        self.assertTrue(hasattr(user, "contact"))
+        self.assertIsNotNone(user.contact)
 
     def test_contact_str(self):
         """__str__ includes the user's email."""
         user = self.create_user(email="contact@test.com")
-        contact = self.create_user_contact(user=user)
+        contact = self.get_user_contact(user)
         self.assertIn("contact@test.com", str(contact))
 
     def test_contact_has_timestamps(self):
         """Contact has created_at and updated_at from TimestampedModel."""
         user = self.create_user()
-        contact = self.create_user_contact(user=user)
+        contact = self.get_user_contact(user)
         self.assertIsNotNone(contact.created_at)
         self.assertIsNotNone(contact.updated_at)
 
-    def test_one_to_one_relationship(self):
-        """User has at most one contact."""
+    def test_update_contact_fields(self):
+        """update_user_contact() modifies the signal-created contact."""
         user = self.create_user()
-        self.create_user_contact(user=user)
+        contact = self.update_user_contact(user, city="Bangalore", state="Karnataka")
+        self.assertEqual(contact.city, "Bangalore")
+        self.assertEqual(contact.state, "Karnataka")
+
+    def test_one_to_one_relationship(self):
+        """User has at most one contact — creating a second raises IntegrityError."""
+        user = self.create_user()
         from accounts.models.custom_user import UserContact
 
         with self.assertRaises(IntegrityError):
