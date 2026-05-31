@@ -82,7 +82,7 @@ hooks/useChat.js                    →  __tests__/hooks/useChat.test.js
 | **Next.js 16 (App Router)** | Latest features, server components, Turbopack for fast builds. App Router is the standard going forward. |
 | **React 19** | Server components, improvedSuspense, use() hook. Latest stable. |
 | **Tailwind CSS v4** | CSS-first config, no build step for config, zero runtime. Simpler than v3 for newcomers. |
-| **NextAuth.js v5 (Auth.js)** | Server-side sessions with httpOnly cookies — eliminates XSS risk from localStorage JWT. Direct integration with Django backend. |
+| **BFF Proxy (no auth library)** | Next.js Route Handlers act as a Backend-for-Frontend proxy. HttpOnly cookies store Django JWTs. No Auth.js — Django is the sole identity authority. Zero abstraction overhead, no race conditions. |
 | **Vitest + Testing Library** | Fast, ESM-native test runner. Testing Library tests user behavior, not implementation details. |
 | **JavaScript (no TypeScript)** | Lower barrier for interns. jsconfig with path aliases gives IDE support without TS complexity. Can migrate later if needed. |
 | **Turbopack** | Next.js 16's default bundler. Significantly faster than Webpack for dev. |
@@ -99,22 +99,29 @@ hooks/useChat.js                    →  __tests__/hooks/useChat.test.js
 │  │  Server       │  │  Client       │  │  WebSocket       │  │
 │  │  Components   │  │  Components   │  │  (streaming)     │  │
 │  │  (data fetch, │  │  (interactive │  │                  │  │
-│  │   auth, SEO)  │  │   UI, hooks)  │  │                  │  │
+│  │   SEO)        │  │   UI, hooks)  │  │                  │  │
 │  └──────┬───────┘  └──────┬───────┘  └────────┬─────────┘  │
 │         │                 │                     │            │
 │  ┌──────▼─────────────────▼─────────────────────▼─────────┐ │
-│  │                     lib/                                │ │
-│  │  api.js          auth-client.js        ws.js           │ │
-│  │  (REST calls)    (session helpers)     (WebSocket)     │ │
+│  │              BFF Proxy Layer (Next.js)                  │ │
+│  │  api.js      api-client.js   cookies.js   ws.js       │ │
+│  │  (server)    (/api/proxy/)   (constants)  (auth frame) │ │
+│  │                                                        │ │
+│  │  httpOnly cookies: access_token, refresh_token          │ │
 │  └──────────┬──────────────────┬─────────────────┬────────┘ │
 └─────────────┼──────────────────┼─────────────────┼──────────┘
               │                  │                 │
               ▼                  ▼                 ▼
-┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐
-│  Django Backend  │  │  Auth.js         │  │  Django          │
-│  /api/v1/*       │  │  Session Cookie  │  │  WebSocket       │
-│  (REST API)      │  │  (httpOnly)      │  │  /ws/chat/*      │
-└──────────────────┘  └──────────────────┘  └──────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                     Django Backend                           │
+│  /api/v1/auth/token/  →  { access, refresh }                │
+│  /api/v1/auth/token/refresh/  →  { access, refresh }       │
+│  /api/v1/*            →  Resource APIs (Bearer JWT)         │
+│  /ws/chat/*           →  WebSocket consumers                │
+│                                                             │
+│  Django is the SOLE identity authority.                     │
+│  No auth library sits between Next.js and Django.           │
+└──────────────────────────────────────────────────────────────┘
 ```
 
 ---
