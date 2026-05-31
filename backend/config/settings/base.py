@@ -27,6 +27,8 @@ DJANGO_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    # PostgreSQL specific features
+    "django.contrib.postgres",
 ]
 
 THIRD_PARTY_APPS = [
