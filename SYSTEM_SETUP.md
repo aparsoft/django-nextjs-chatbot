@@ -1,23 +1,5 @@
 # System Setup & Configuration
 
-## Fix Redis Memory Overcommit Warning
-
-If you see this Redis warning:
-```
-WARNING Memory overcommit must be enabled!
-```
-
-### Quick Fix (WSL/Linux):
-
-```bash
-# Option 1: Temporary (until reboot)
-sudo sysctl vm.overcommit_memory=1
-
-# Option 2: Permanent
-echo "vm.overcommit_memory=1" | sudo tee -a /etc/sysctl.conf
-sudo sysctl -p
-```
-
 ### For WSL2 Specifically:
 
 Create/edit `.wslconfig` in Windows:
