@@ -1,4 +1,4 @@
-# Backend Guide — ConvoInsight AI Chatbot
+# Backend Guide — Django + Next.js AI Chatbot
 
 > A practical reference for how the Django backend is structured, how to navigate it, and how to add things.
 
