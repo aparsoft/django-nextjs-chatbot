@@ -71,7 +71,7 @@ The system automatically creates a Django superuser on first startup:
         ▼                   ▼                   ▼
 ┌───────────────┐   ┌───────────────┐   ┌──────────────┐
 │  PostgreSQL   │   │     Redis     │   │   Celery     │
-│   :5433       │   │    :6380      │   │   Workers    │
+│   :5434       │   │    :6381      │   │   Workers    │
 │  (Database)   │   │   (Cache)     │   │ (Background) │
 └───────────────┘   └───────────────┘   └──────────────┘
                                                 │
@@ -87,8 +87,8 @@ The system automatically creates a Django superuser on first startup:
 
 | Service | Container Name | Internal Port | External Port | Purpose |
 |---------|---------------|---------------|---------------|---------|
-| PostgreSQL | chatbot-db | 5432 | 5433 | Main database |
-| Redis | chatbot-redis | 6379 | 6380 | Cache & message broker |
+| PostgreSQL | chatbot-db | 5432 | 5434 | Main database |
+| Redis | chatbot-redis | 6379 | 6381 | Cache & message broker |
 | Django | chatbot-backend | 8000 | 8000 | API & admin |
 | Next.js | chatbot-frontend | 3000 | 3000 | User interface |
 | Celery Worker | chatbot-celery | - | - | Background tasks |
@@ -128,20 +128,20 @@ The system automatically creates a Django superuser on first startup:
 ### PostgreSQL Database
 Connect from your host machine:
 ```bash
-psql -h localhost -p 5433 -U chatbot_user -d chatbot_db
+psql -h localhost -p 5434 -U chatbot_user -d chatbot_db
 # Password: chatbot_pass
 ```
 
 Or using database tools (DBeaver, pgAdmin):
 - Host: localhost
-- Port: 5433
+- Port: 5434
 - Database: chatbot_db
 - Username: chatbot_user
 - Password: chatbot_pass
 
 ### Redis Cache
 ```bash
-redis-cli -h localhost -p 6380
+redis-cli -h localhost -p 6381
 ```
 
 ---
