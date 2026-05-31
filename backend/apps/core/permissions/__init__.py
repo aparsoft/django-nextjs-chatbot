@@ -1,58 +1,37 @@
-# /home/ram/aparsoft/backend/apps/core/permissions/__init__.py
+"""
+Core permissions package for the AI chatbot application.
 
-# Import from base module
+Permission classes enforce data isolation — every user accesses only
+their own chat sessions, documents, preferences, tools, API keys,
+token usage, and feedback.  Admins can see and manage everything.
+
+Quick reference:
+    IsOwnerOrAdmin   → Main workhorse: owner + admin (most ViewSets)
+    IsOwner          → Strict owner-only, no admin bypass (sensitive ops)
+    IsAdminOrReadOnly → Read for all authenticated, write for admins
+    IsAdminUser      → Admin-only endpoints (stats, dashboards)
+
+Usage in ViewSets::
+
+    from core.permissions import IsOwnerOrAdmin, IsAdminOrReadOnly
+
+    class ChatSessionViewSet(viewsets.ModelViewSet):
+        permission_classes = [IsOwnerOrAdmin]
+
+    class SystemPromptViewSet(viewsets.ModelViewSet):
+        permission_classes = [IsAdminOrReadOnly]
+"""
+
 from .base import (
-    BaseAccessControl,
-    CoreAccessPermission,
+    IsOwnerOrAdmin,
+    IsOwner,
     IsAdminOrReadOnly,
-    IsOwnerOrReadOnly,
-    ReadOnlyForStudents,
-    AllowGuestReadOnly,
-    IsWorkingHours,
-    IsEducatorOwnerOrReadOnly,
-)
-
-# Import from role module
-from .role import (
-    IsTeacherOrReadOnly,
-    IsInstitutionAdmin,
-    IsInstitutionAdminOrReadOnly,
-)
-
-# Import from subscription module
-from .subscription import (
-    SubscriptionRequired,
-    ContentQuotaPermission,
-    DownloadQuotaPermission,
-    GradeAppropriateContentPermission
-)
-
-# Import from content_enum module
-from .content_enum import (
-    ContentType,
-    ContentAction,
-    UserTier
+    IsAdminUser,
 )
 
 __all__ = [
-    'BaseAccessControl',
-    'CoreAccessPermission',
-    'IsAdminOrReadOnly',
-    'IsOwnerOrReadOnly',
-    'ReadOnlyForStudents',
-    'AllowGuestReadOnly',
-    'IsWorkingHours',
-    'IsTeacherOrReadOnly',
-    'IsEducatorOwnerOrReadOnly',
-    'ContentType',
-    'ContentAction',
-    'ContentManagementPermission',
-    'HasCompletedPrerequisites',
-    'IsInstitutionAdmin',
-    'IsInstitutionAdminOrReadOnly',
-    'SubscriptionRequired',
-    'ContentQuotaPermission',
-    'DownloadQuotaPermission',
-    'GradeAppropriateContentPermission',
-    'UserTier'
+    "IsOwnerOrAdmin",
+    "IsOwner",
+    "IsAdminOrReadOnly",
+    "IsAdminUser",
 ]
