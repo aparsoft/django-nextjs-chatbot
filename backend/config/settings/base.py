@@ -286,16 +286,28 @@ SPECTACULAR_SETTINGS = {
     },
 }
 # =============================================================================
-# JWT Authentication (Step 2)
+# JWT Authentication (SimpleJWT)
 # =============================================================================
 from datetime import timedelta  # noqa: E402
 
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),
-    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+    # Token lifetimes — short access, medium refresh
+    # Access: 5 min (BFF proxy refreshes transparently)
+    # Refresh: 1 day (httpOnly cookie, never exposed to JS)
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=5),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
+
+    # Token rotation — new refresh token on every refresh
     "ROTATE_REFRESH_TOKENS": True,
-    "BLACKLIST_AFTER_ROTATION": True,
-    "UPDATE_LAST_LOGIN": True,
+    # Do NOT blacklist after rotation — avoids race conditions with
+    # parallel BFF proxy refresh requests. Logout still explicitly
+    # blacklists via token.blacklist().
+    "BLACKLIST_AFTER_ROTATION": False,
+
+    # Avoid DB write on every login
+    "UPDATE_LAST_LOGIN": False,
+
+    # Signing
     "ALGORITHM": "HS256",
     "SIGNING_KEY": config("DJANGO_SECRET_KEY", default="dev-only-signing-key"),
     "AUTH_HEADER_TYPES": ("Bearer",),
@@ -304,6 +316,15 @@ SIMPLE_JWT = {
     "AUTH_TOKEN_CLASSES": ("rest_framework_simplejwt.tokens.AccessToken",),
     "TOKEN_TYPE_CLAIM": "token_type",
     "JTI_CLAIM": "jti",
+
+    # Cookie settings (used by CustomJWTCookieAuthentication for direct API access)
+    "AUTH_COOKIE": "access_token",
+    "AUTH_COOKIE_REFRESH": "refresh_token",
+    "AUTH_COOKIE_SECURE": False,  # True in production
+    "AUTH_COOKIE_HTTP_ONLY": True,
+    "AUTH_COOKIE_SAMESITE": "Lax",
+    "AUTH_COOKIE_ACCESS_MAX_AGE": 300,  # 5 minutes (matches ACCESS_TOKEN_LIFETIME)
+    "AUTH_COOKIE_REFRESH_MAX_AGE": 86400,  # 1 day (matches REFRESH_TOKEN_LIFETIME)
 }
 
 # =============================================================================
