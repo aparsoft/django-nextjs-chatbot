@@ -52,9 +52,10 @@
 
 | File | Purpose |
 |------|---------|
-| `lib/api.js` | Fetch wrapper with JWT auth, refresh, error handling |
-| `lib/auth-client.js` | Client-side auth helpers (signIn, signOut, useSession) |
-| `lib/ws.js` | WebSocket connection manager for streaming |
+| `lib/api.js` | Server-side fetch (reads cookies, injects Bearer header) |
+| `lib/api-client.js` | Client-side fetch (calls /api/proxy/...) |
+| `lib/cookies.js` | Cookie constants: names, max-ages, options |
+| `lib/ws.js` | WebSocket connection manager (auth frame pattern) |
 
 ---
 
@@ -63,21 +64,22 @@
 | Hook | Purpose |
 |------|---------|
 | `hooks/useChat.js` | Chat state management, message sending, streaming |
-| `hooks/useAuth.js` | Session access shortcut for client components |
-| `hooks/useWebSocket.js` | WebSocket lifecycle (connect, disconnect, reconnect) |
+| `hooks/useWebSocket.js` | WebSocket lifecycle (connect, disconnect, auth frame) |
 
 ---
 
-## Auth (NextAuth.js v5) — ❌ Not Implemented
+## Auth (BFF Proxy Pattern) — ❌ Not Implemented
 
 | Component | Status | Details |
 |-----------|--------|---------|
-| `next-auth` package | ✅ Installed | 5.0.0-beta.31 |
-| `auth.js` config | ❌ | Not created — Credentials provider + Django backend adapter |
-| `middleware.js` | ❌ | Route protection not implemented |
-| `app/api/auth/[...nextauth]/route.js` | ❌ | Route handler not created |
-| `.env.local` auth vars | ⚠️ Partial | Placeholders exist (`AUTH_SECRET` still dummy value) |
-| Auth integration plan | ✅ Documented | Full playbook in `docs/AUTHJS_INTEGRATION.md` |
+| `middleware.js` | ❌ | Route protection (cookie existence check) |
+| `app/api/auth/login/route.js` | ❌ | Login proxy → Django |
+| `app/api/auth/refresh/route.js` | ❌ | Refresh proxy with concurrency lock |
+| `app/api/auth/logout/route.js` | ❌ | Logout + Django blacklist |
+| `app/api/proxy/[...path]/route.js` | ❌ | Generic API proxy (injects Bearer header) |
+| `lib/cookies.js` | ❌ | Cookie constants |
+| `.env.local` | ⚠️ Partial | Has stale `AUTH_SECRET` (not needed); missing `INTERNAL_API_URL` |
+| Auth playbook | ✅ Documented | Full plan in `docs/AUTHENTICATION_PLAYBOOK.md` |
 
 ---
 
@@ -125,33 +127,38 @@
 
 ## Priority Checklist (What to Build Next)
 
-### Phase 1 — Auth Foundation
-1. **`auth.js`** — Configure Auth.js with Credentials provider pointing to Django backend
-2. **`middleware.js`** — Route protection (redirect unauthenticated to `/login`)
-3. **`app/api/auth/[...nextauth]/route.js`** — Wire up the auth route handler
-4. **`app/login/page.jsx`** — Login form with email/password
-5. **Update `.env.example`** — Sync with `.env.local` variables
+### Phase 1 — Auth Foundation (BFF Proxy)
+1. **`lib/cookies.js`** — Cookie constants (names, max-ages, options)
+2. **`app/api/auth/login/route.js`** — Login proxy → Django, sets httpOnly cookies
+3. **`app/api/auth/refresh/route.js`** — Refresh proxy with concurrency lock
+4. **`app/api/auth/logout/route.js`** — Logout + Django blacklist + clear cookies
+5. **`app/api/auth/me/route.js`** — Current user proxy
+6. **`middleware.js`** — Route protection (cookie existence check)
+7. **`app/login/page.jsx`** — Login form (calls /api/auth/login)
+8. **Update `.env.example`** — Remove `AUTH_SECRET`, add `INTERNAL_API_URL`
 
 ### Phase 2 — Layout & Navigation
-6. **`app/(app)/layout.jsx`** — Authenticated layout with sidebar, header, session check
-7. **`components/layout/`** — Sidebar navigation, header with user menu
-8. **`app/page.js`** — Replace scaffold with redirect to `/chat` or landing page
+9. **`app/(app)/layout.jsx`** — Authenticated layout with server-side token validation
+10. **`app/api/proxy/[...path]/route.js`** — Generic API proxy (injects Bearer header)
+11. **`components/layout/`** — Sidebar navigation, header with user menu
+12. **`app/page.js`** — Replace scaffold with redirect to `/chat` or landing page
 
 ### Phase 3 — Core Features
-9. **`lib/api.js`** — API client with JWT auth and error handling
-10. **`app/(app)/chat/page.jsx`** — Chat interface (session list + message area + input)
-11. **`components/chat/`** — Message bubble, input bar, session list
-12. **`hooks/useChat.js`** — Chat state management hook
+13. **`lib/api.js`** — Server-side fetch helper (reads cookies, injects Bearer)
+14. **`lib/api-client.js`** — Client-side fetch helper (calls /api/proxy/...)
+15. **`app/(app)/chat/page.jsx`** — Chat interface (session list + message area + input)
+16. **`components/chat/`** — Message bubble, input bar, session list
+17. **`hooks/useChat.js`** — Chat state management hook
 
 ### Phase 4 — Supporting Features
-13. **`app/(app)/documents/page.jsx`** — Document upload and management
-14. **`app/(app)/settings/page.jsx`** — User preferences (model, temperature)
-15. **`app/(app)/analytics/page.jsx`** — Token usage dashboard
+18. **`app/(app)/documents/page.jsx`** — Document upload and management
+19. **`app/(app)/settings/page.jsx`** — User preferences (model, temperature)
+20. **`app/(app)/analytics/page.jsx`** — Token usage dashboard
 
 ### Phase 5 — Real-Time & Testing
-16. **`lib/ws.js`** + **`hooks/useWebSocket.js`** — WebSocket streaming for chat
-17. **`vitest.config.mjs`** + **`__tests__/setup.js`** — Test infrastructure
-18. **Tests** — Auth, middleware, chat components, API layer
+21. **`lib/ws.js`** + **`hooks/useWebSocket.js`** — WebSocket streaming (auth frame pattern)
+22. **`vitest.config.mjs`** + **`__tests__/setup.js`** — Test infrastructure
+23. **Tests** — Auth routes, middleware, proxy, chat components
 
 ---
 
