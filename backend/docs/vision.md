@@ -1,4 +1,4 @@
-# Vision — ConvoInsight AI Chatbot
+# Vision — Django + Next.js AI Chatbot
 
 > What we're building and why. The north star for every design decision.
 
@@ -14,7 +14,7 @@ Build a **conversational AI chatbot platform** that teaches developers how to in
 
 ## Product Vision
 
-ConvoInsight is a **Customer Conversational Intelligence Platform** — a chatbot that:
+The platform is a **Customer Conversational AI Chatbot** — a chatbot that:
 
 1. **Converses** with users via a clean chat interface
 2. **Remembers** conversation context across sessions (LangGraph checkpoints)
