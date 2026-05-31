@@ -32,461 +32,221 @@ This is a **learning-focused repository** designed to teach developers how to in
 
 ## ⚡ Quick Start
 
-**New to AI chatbots?** Perfect! This tutorial is designed for you:
+### Option 1: Docker (Recommended)
 
-1. 🎥 **[Watch the YouTube Tutorial](https://youtube.com/@aparsoft-ai)** - Follow along step-by-step
-2. 💻 **Clone this repo** - Get the starter code
-3. 🛠️ **Build with us** - Learn by doing
-4. 🚀 **Deploy your chatbot** - See it live!
-
-**No prior AI experience needed** - we'll teach you everything from basics to deployment.
-
----
-
-## 🎯 About Aparsoft
-
-We're an AI solutions company based in **Bengaluru, India**, and we're passionate about teaching developers. This tutorial series is part of our mission to make AI accessible to the Django and broader developer community.
-
-**Why We Created This Tutorial:**
-- Share our Django + AI integration knowledge
-- Build a supportive developer community
-- Demonstrate the power of Django-DRF-Next.js stack
-- Make AI less intimidating for backend developers
-- Help you build your first AI project
-
-### 📺 Learn With Us on YouTube
-
-We're building in public and teaching everything we know:
-
-- **YouTube:** [@aparsoft-ai](https://youtube.com/@aparsoft-ai) - **Weekly tutorials, live coding, and beginner-friendly content**
-- **LinkedIn:** [/company/aparsoft](https://linkedin.com/company/aparsoft) - Articles and tech insights
-- **GitHub:** [@aparsoft](https://github.com/aparsoft) - Open-source learning projects
-- **Twitter/X:** [@aparsoft](https://twitter.com/aparsoft) - Quick tips and dev updates
-- **Website:** [aparsoft.com](https://aparsoft.com) - More about our work
-
-**Subscribe to our YouTube channel** - New tutorials every Wednesday, and Friday!
-
-## 🛠️ Tech Stack (Enterprise-Grade Architecture)
-
-This project features a production-ready, scalable architecture:
-
-### Backend Stack (Django 5.2)
-- **Django 5.2** - Latest Python web framework with async support
-- **Django REST Framework** - Professional API development
-- **PostgreSQL 17 + pgvector** - Advanced relational database with vector search
-- **Redis 7** - High-performance caching & message broker
-- **Celery** - Distributed task queue for background jobs
-- **Celery Beat** - Cron-like task scheduler
-
-### Frontend Stack (Next.js 15.5.4)
-- **Next.js 15.5.4** - React framework with Turbopack (faster builds!)
-- **Tailwind CSS 3.0** - Modern utility-first CSS framework
-- **Axios** - Promise-based HTTP client
-- **Server-Side Rendering (SSR)** - SEO-optimized, fast page loads
-
-### AI/ML Integration
-- **OpenAI API** - GPT-4 and GPT-3.5 Turbo integration
-- **LangChain** - Advanced LLM application framework
-- **LangGraph** - Stateful, multi-step conversation flows
-- **pgvector Extension** - Vector similarity search for RAG
-- **Conversation Memory** - Context-aware chatbot responses
-
-### Infrastructure & DevOps
-- **Docker Compose** - Multi-container orchestration
-- **Automated Migrations** - Database schema management
-- **Health Checks** - Service monitoring and auto-restart
-- **Hot Reload** - Development efficiency (both backend & frontend)
-- **Volume Persistence** - Data survives container restarts
-- **Separate Entrypoints** - Optimized startup for each service
-
-
-## 💡 Why This Repository?
-
-This is a **hands-on learning project** for developers who want to understand AI integration without the overwhelm.
-
-**Perfect for:**
-- **Django developers** curious about adding AI to their projects
-- **Backend developers** wanting to learn LangChain basics
-- **Full-stack developers** exploring Next.js + Django integration
-- **Students** learning modern web development with AI
-- **Bootcamp grads** building their portfolio with real AI projects
-- **Anyone** who's intimidated by AI and wants a friendly introduction
-
-**What makes this project special:**
-- ✅ **Enterprise-grade architecture** - Production-ready patterns and best practices
-- ✅ **Fully automated setup** - Migrations, superuser, static files - all automatic
-- ✅ **Clear, documented code** - Professional code with comprehensive comments
-- ✅ **Step-by-step tutorials** - YouTube videos explaining architecture decisions
-- ✅ **Real production patterns** - Celery, Redis, proper database management
-- ✅ **Beginner-friendly** - Learn professional development without overwhelm
-
----
-
-## 🎯 Key Features & Automation
-
-### Automatic Setup (Zero Manual Steps!)
-
-When you run `docker-compose up`, the system automatically:
-
-1. **Database Initialization**
-   - Waits for PostgreSQL to be fully ready
-   - Runs all pending migrations
-   - Creates database tables and indexes
-   - Installs pgvector extension
-
-2. **Superuser Creation**
-   - Creates Django admin user automatically
-   - **Username:** `admin`
-   - **Password:** `admin123` (⚠️ Change in production!)
-   - **Email:** `admin@aparsoft.com`
-   - Ready to access admin panel immediately
-
-3. **Static Files**
-   - Collects all Django static files
-   - Prepares admin interface assets
-   - Configures file permissions
-
-4. **Service Orchestration**
-   - Backend starts first (runs migrations)
-   - Celery workers wait for backend
-   - Celery Beat waits for Redis
-   - Frontend starts independently
-   - All services connect automatically
-
-### Django Admin Panel
-
-Access the full-featured admin dashboard at: **http://localhost:8000/chatbot-admin/**
-
-**Default Credentials:**
-- Username: `admin`
-- Password: `admin123`
-
-**Admin Panel Features:**
-- 👥 **User Management** - Create, edit, delete users and permissions
-- 🗄️ **Database Models** - CRUD operations on all models
-- 📧 **Email Verification** - Manage email addresses and verification
-- 🔐 **Token Management** - API tokens and authentication
-- 📊 **Celery Monitoring** - View periodic tasks and results
-- 🔍 **Query Inspection** - Debug database queries
-- 📝 **Content Management** - Manage site content and configuration
-
-**Security Best Practices:**
 ```bash
-# Change admin password immediately
-docker-compose exec backend python manage.py changepassword admin
-
-# Or create your own superuser
-docker-compose exec backend python manage.py createsuperuser
-
-# For production, delete default admin
-docker-compose exec backend python manage.py shell
->>> from django.contrib.auth import get_user_model
->>> User = get_user_model()
->>> User.objects.get(username='admin').delete()
-```
-
-### Background Task Processing
-
-**Celery Workers** handle:
-- Asynchronous AI model requests
-- Email sending
-- Data processing
-- Report generation
-- Periodic cleanup tasks
-
-**Celery Beat** schedules:
-- Daily database backups
-- Cache clearing
-- Token expiration cleanup
-- Periodic health checks
-
-View Celery tasks in Django admin or use:
-```bash
-docker-compose exec celery celery -A config inspect active
-```
-
-## 🚀 What You'll Build
-
-By the end of this tutorial, you'll have a working chatbot with:
-
-### 🤖 Basic Chatbot Features
-- **Conversational Interface** - Simple, clean chat UI
-- **Message History** - Conversations that remember context
-- **AI Responses** - Powered by OpenAI GPT models
-- **User Sessions** - Multiple users can chat independently
-
-### 🔧 Technical Implementation
-- **Django REST API** - Clean, well-structured backend
-- **Next.js Frontend** - Modern React with server-side rendering
-- **LangChain Integration** - Your first steps with the AI framework
-- **LangGraph Basics** - Simple conversation flow patterns
-- **Database Storage** - Saving conversations in PostgreSQL
-
-### 📚 Learning Outcomes
-- Understand how to connect Django with AI APIs
-- Learn LangChain fundamentals through practice
-- See how conversation state management works
-- Deploy a full-stack AI application
-- Build confidence to explore more complex AI features
-
-## 🛠️ Getting Started
-
-### Prerequisites
-
-Don't worry if you don't have everything - we'll guide you through installation in the tutorial videos!
-
-**Required:**
-- Python 3.10+ (we recommend 3.12)
-- Node.js 18+
-- OpenAI API key (we'll show you how to get one)
-
-**Nice to have:**
-- Docker Desktop (makes setup easier, but optional)
-- Git basics
-
-### 📦 Quick Setup
-
-**Option 1: Docker (Recommended for Beginners)**
-```bash
-# Clone the repo
+# 1. Clone the repo
 git clone https://github.com/aparsoft/django-nextjs-chatbot.git
 cd django-nextjs-chatbot
 
-# Create .env file (we'll guide you)
+# 2. Create .env file and add your OpenAI API key
 cp .env.example .env
-# Edit .env and add your OPENAI_API_KEY
+# Edit .env → set OPENAI_API_KEY=sk-proj-...
 
-# Start everything with one command!
+# 3. Start everything
 docker-compose up --build
 ```
 
-**What happens automatically:**
+That's it! Everything auto-configures:
+- ✅ PostgreSQL 17 + pgvector extension installed
+- ✅ Three databases created: `chatbot_db`, `langchain_pgvector`, `langchain_history`
 - ✅ Database migrations run automatically
-- ✅ Superuser created (username: `admin`, password: `admin123`)
+- ✅ Superuser created (`admin` / `admin123`)
 - ✅ Static files collected
 - ✅ All services start and connect
 
-**Access your application:**
+### Option 2: Run Backend Locally (for development)
 
-| Service | URL | Credentials | Purpose |
-|---------|-----|-------------|---------|
-| **Frontend** | http://localhost:3000 | - | Main user interface |
-| **Backend API** | http://localhost:8000 | - | REST API endpoints |
-| **Admin Panel** | http://localhost:8000/chatbot-admin/ | admin / admin123 | Django admin dashboard |
-| **PostgreSQL** | localhost:5433 | chatbot_user / chatbot_pass | Database access |
-| **Redis** | localhost:6380 | - | Cache & broker |
+```bash
+# 1. Start only infrastructure
+docker-compose up db redis -d
 
-**⚠️ Security Notice:** Default passwords are for development only! See [SYSTEM_SETUP.md](./SYSTEM_SETUP.md) for production security configuration.
+# 2. Set up backend
+cd backend
+python -m venv venv
+source venv/bin/activate    # Linux/Mac
+# venv\Scripts\activate     # Windows
+pip install -r requirements.txt
+
+# 3. Configure environment
+cp ../.env.example ../.env.local
+# Edit .env.local → set your OPENAI_API_KEY
+
+# 4. Run migrations & start
+python manage.py migrate
+python manage.py createsuperuser
+python manage.py runserver
+```
+
+### Access Your Application
+
+| Service | URL | Credentials |
+|---------|-----|-------------|
+| **Frontend** | http://localhost:3000 | — |
+| **Backend API** | http://localhost:8000/api/v1/ | — |
+| **Django Admin** | http://localhost:8000/chatbot-admin/ | admin / admin123 |
+| **PostgreSQL** | localhost:**5433** | chatbot_user / chatbot_pass |
+| **Redis** | localhost:**6380** | — |
+
+### 📚 Intern Onboarding
+
+New to the project? Start here:
+
+| Document | What It Covers |
+|----------|---------------|
+| [📘 Intern Onboarding Guide](./docs/INTERN_ONBOARDING.md) | Day-by-day setup → first contribution |
+| [🤝 Contributing Guide](./docs/CONTRIBUTING.md) | Git workflow, PRs, code style |
+| [🏗️ Model Architecture](./backend/apps/chatbot/models/MODEL_ARCHITECTURE.md) | 8 Django models, fatty model pattern |
+| [📖 Django Lessons](./backend/docs/lessons/django/) | 10 in-depth Django tutorials |
+
+---
+
+## 🛠️ Tech Stack
+
+### Backend (Django 5.2)
+- **Django 5.2** + **Django REST Framework** — API development
+- **PostgreSQL 17 + pgvector** — relational DB with vector similarity search
+- **Redis 7** — cache, Celery broker, Django Channels
+- **Celery + Celery Beat** — background task processing & scheduling
+- **LangChain** — LLM application framework
+- **LangGraph** — stateful multi-step conversation flows with PostgresCheckpointer
+
+### Frontend (Next.js 15)
+- **Next.js 15** + **React 19** — server-side rendered UI
+- **Tailwind CSS** — utility-first styling
+- **Axios** — HTTP client
+
+### AI/ML
+- **OpenAI GPT** — chat completions, embeddings
+- **pgvector** — vector similarity search for RAG
+- **LangGraph PostgresSaver** — conversation checkpoint persistence
+
+### Infrastructure
+- **Docker Compose** — multi-container orchestration with health checks
+- **pgvector/pgvector:pg17** — PostgreSQL image with pgvector pre-installed
 
 ---
 
 ## 📊 System Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│              Docker Compose Orchestration               │
-└─────────────────────────────────────────────────────────┘
-                            │
-        ┌───────────────────┼───────────────────┐
-        ▼                   ▼                   ▼
-┌───────────────┐   ┌───────────────┐   ┌──────────────┐
-│   Next.js     │   │    Django     │   │   Django     │
-│   Frontend    │──▶│   Backend     │──▶│    Admin     │
-│   Port 3000   │   │   Port 8000   │   │   Panel      │
-└───────────────┘   └───────────────┘   └──────────────┘
-                            │
-        ┌───────────────────┼───────────────────┐
-        ▼                   ▼                   ▼
-┌───────────────┐   ┌───────────────┐   ┌──────────────┐
-│  PostgreSQL   │   │     Redis     │   │   Celery     │
-│  Port 5433    │   │   Port 6380   │   │   Workers    │
-│  (Database)   │   │   (Cache)     │   │ (Background) │
-└───────────────┘   └───────────────┘   └──────────────┘
-                                                │
-                                        ┌──────────────┐
-                                        │ Celery Beat  │
-                                        │ (Scheduler)  │
-                                        └──────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                     Docker Compose                           │
+│                                                              │
+│  ┌──────────┐     ┌──────────────────────────────────┐      │
+│  │  Next.js │────▶│         Django Backend            │      │
+│  │  :3000   │     │         :8000                     │      │
+│  └──────────┘     │  ┌────────────┐ ┌─────────────┐  │      │
+│                   │  │  Celery     │ │ Celery Beat │  │      │
+│                   │  │  (worker)   │ │ (scheduler)  │  │      │
+│                   │  └────────────┘ └─────────────┘  │      │
+│                   └──────────┬───────────────────────┘      │
+│                              │                               │
+│              ┌───────────────┼───────────────┐               │
+│              ▼               ▼               ▼               │
+│  ┌──────────────────┐ ┌───────────┐ ┌──────────────┐        │
+│  │ PostgreSQL 17    │ │  Redis 7  │ │  OpenAI API  │        │
+│  │ + pgvector       │ │  :6380    │ │  (external)  │        │
+│  │ :5433            │ │           │ │              │        │
+│  │                  │ │ • cache   │ │ • GPT models │        │
+│  │ • chatbot_db     │ │ • broker  │ │ • embeddings │        │
+│  │ • langchain_     │ │ • channels│ │              │        │
+│  │   pgvector       │ │           │ │              │        │
+│  │ • langchain_     │ │           │ │              │        │
+│  │   history        │ │           │ │              │        │
+│  └──────────────────┘ └───────────┘ └──────────────┘        │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-**Key Features:**
-- ✅ All services containerized and isolated
-- ✅ Automatic service dependencies
-- ✅ Health checks and auto-restart
-- ✅ Data persistence across restarts
-- ✅ Hot reload for development
+### Database Architecture
 
-That's it! Everything is set up and ready to use.
+We use a **single PostgreSQL instance with three separate databases**:
 
-**Option 2: Manual Setup (If you want to understand each piece)**
+| Database | Purpose | Used By |
+|----------|---------|---------|
+| `chatbot_db` | Django models (users, sessions, preferences, tokens, feedback) | Django ORM |
+| `langchain_pgvector` | Document embeddings + vector similarity search | LangChain PGVector |
+| `langchain_history` | LangGraph checkpoints (conversation state, messages) | LangGraph PostgresSaver |
 
-We recommend following our YouTube tutorial "[Setting Up Your Django + Next.js Chatbot](https://youtube.com/@aparsoft)" where we walk through each command. Here are the complete steps:
+All three are created automatically by `docker/init-db.sh` on first startup.
 
-**Step 1: Clone the Repository**
-```bash
-git clone https://github.com/aparsoft/django-nextjs-chatbot.git
-cd django-nextjs-chatbot
+---
+
+## 🎯 Django Model Architecture (8 Models)
+
+We follow the **"Fatty Models, Thin Viewsets"** pattern — business logic lives in model methods, not in views.
+
+```
+CustomUser (accounts app)
+    │
+    ├── ChatSession (1:N)         ← Maps to LangGraph thread_id
+    │   ├── TokenUsage (1:N)      ← Token costs per request
+    │   ├── MessageFeedback (1:N) ← User ratings on AI responses
+    │   └── UserDocument (1:N)    ← RAG file uploads (pgvector refs)
+    │
+    ├── UserPreference (1:1)      ← AI settings & defaults
+    ├── UserTool (1:N)            ← Tool enable/disable + config
+    └── UserAPIKey (1:N)          ← Encrypted provider API keys
+
+SystemPromptTemplate (standalone) ← Reusable system prompts
 ```
 
-**Step 2: Backend Setup (Django)**
-```bash
-# Navigate to backend folder
-cd backend
+**Key principle:** Django stores metadata (titles, settings, analytics). LangGraph stores actual messages. pgvector stores embeddings. No duplication!
 
-# Create a virtual environment
-python -m venv venv
+📖 Full details: [MODEL_ARCHITECTURE.md](./backend/apps/chatbot/models/MODEL_ARCHITECTURE.md)
 
-# Activate virtual environment
-# On macOS/Linux:
-source venv/bin/activate
-# On Windows:
-venv\Scripts\activate
-
-# Install dependencies from requirements.txt
-pip install -r requirements.txt
-
-# Create .env file for backend
-cp .env.example .env
-# Edit .env and add your OPENAI_API_KEY
-
-# Run database migrations
-python manage.py migrate
-
-# Create a superuser (optional, for admin access)
-python manage.py createsuperuser
-
-# Start the Django development server
-python manage.py runserver
-# Backend will run on http://localhost:8000
-```
-
-**Step 3: Frontend Setup (Next.js with .jsx)**
-```bash
-# Open a new terminal window
-# Navigate to frontend folder
-cd frontend
-
-# Install Node.js dependencies
-npm install
-# or if you prefer yarn:
-# yarn install
-
-# Create .env.local file for frontend
-cp .env.example .env.local
-# Edit .env.local and set:
-# NEXT_PUBLIC_API_URL=http://localhost:8000
-
-# Start the Next.js development server
-npm run dev
-# or with yarn:
-# yarn dev
-# Frontend will run on http://localhost:3000
-```
-
-**Step 4: Test Your Setup**
-- Open `http://localhost:3000` in your browser
-- You should see the chatbot interface
-- Try sending a message - it should connect to your Django backend
-- Backend API docs available at `http://localhost:8000/api/docs`
-
-**Troubleshooting Common Issues:**
-- **Port already in use?** Change ports in settings
-- **Module not found?** Make sure virtual environment is activated
-- **Database errors?** Run migrations again
-- **API not connecting?** Check CORS settings in Django
-
-### 🔑 Getting Your OpenAI API Key
-
-1. Go to [platform.openai.com](https://platform.openai.com/)
-2. Sign up / Log in
-3. Go to API Keys section
-4. Create a new key
-5. Add $5-10 credit (plenty for learning!)
-
-We have a detailed video guide: "Getting Your First OpenAI API Key"
-
-### ❓ Stuck? We're Here to Help!
-
-- 📺 **Watch the setup video** on our YouTube channel
-- 💬 **Ask in GitHub Discussions** - we respond daily!
-- 🎮 **Join our Discord** (link in YouTube description)
-- 📚 **Check [SYSTEM_SETUP.md](./SYSTEM_SETUP.md)** - Comprehensive system configuration guide
-- 🚀 **See [QUICK_START.md](./QUICK_START.md)** - Quick reference and common commands
-- ⚠️ **Redis warning?** See [SYSTEM_SETUP.md](./SYSTEM_SETUP.md#fix-redis-memory-overcommit-warning)
-
-## 🤝 Contributing
-
-This is a learning project and we welcome contributions from developers at all levels!
-
-**Ways to contribute:**
-- **Improve documentation** - Help us make it clearer
-- **Add code comments** - Explain tricky parts
-- **Report bugs** - Help us fix issues
-- **Share your chatbot** - Show what you built!
-- **Suggest features** - What would help you learn?
-
-**Not sure where to start?** Check out our "Good First Issue" labels or ask in Discussions!
+---
 
 ## 🎬 YouTube Tutorial Series
 
-This repository is the companion code for our **beginner-friendly video tutorial series** on building AI chatbots!
+This repository is the companion code for our **beginner-friendly video tutorial series**!
 
 ### 📺 Complete Tutorial Playlist
 
-**Part 1: Setup & Basics** (Start here!)
-- "Introduction: What We're Building" - Project overview and goals
-- "Django + Next.js Setup from Scratch" - Getting your environment ready
-- "Your First API Call to OpenAI" - Hello World for AI
+**Part 1: Setup & Basics**
+- "Introduction: What We're Building"
+- "Django + Next.js Setup from Scratch"
+- "Your First API Call to OpenAI"
 
 **Part 2: Building the Chatbot**
-- "Creating the Django REST API" - Backend fundamentals
-- "Next.js Frontend Setup" - Building the chat interface
-- "Connecting Frontend to Backend" - Making them talk
+- "Creating the Django REST API"
+- "Next.js Frontend Setup"
+- "Connecting Frontend to Backend"
 
 **Part 3: Adding Intelligence**
-- "Introduction to LangChain" - What it is and why we use it
-- "Basic Conversation Memory" - Making the chatbot remember
-- "Introduction to LangGraph" - Simple conversation flows
+- "Introduction to LangChain"
+- "Basic Conversation Memory"
+- "Introduction to LangGraph"
 
 **Part 4: Deployment**
-- "Docker Basics for Beginners" - Containerizing your app
-- "Deploying Your First Chatbot" - Going live!
+- "Docker Basics for Beginners"
+- "Deploying Your First Chatbot"
 
-### 📅 New Learning Content Every Week
+**[→ Start Learning on YouTube](https://youtube.com/@aparsoft-ai)**
 
-- **Monday:** Technical Tutorials (beginner-friendly!)
-- **Wednesday:** Live Coding & Q&A
-- **Friday:** Quick Tips & Troubleshooting
+---
 
-### 🎓 What Makes Our Tutorials Different?
+## 🤝 Contributing
 
-- ✅ **No assumptions** - We explain every command
-- ✅ **Real code** - Not pseudocode, actual working examples
-- ✅ **Mistakes included** - We show bugs and how to fix them
-- ✅ **Django focus** - For backend devs learning AI
-- ✅ **Community support** - Active Discord and discussions
+We welcome contributions from developers at all levels!
 
-**[→ Start Learning on YouTube](https://youtube.com/@aparsoft-ai)** - First video teaches absolute basics!
+| Resource | Link |
+|----------|------|
+| 📘 Intern Onboarding | [docs/INTERN_ONBOARDING.md](./docs/INTERN_ONBOARDING.md) |
+| 🤝 Contributing Guide | [docs/CONTRIBUTING.md](./docs/CONTRIBUTING.md) |
+| 🏗️ Model Architecture | [backend/apps/chatbot/models/MODEL_ARCHITECTURE.md](./backend/apps/chatbot/models/MODEL_ARCHITECTURE.md) |
+| 📖 Django Lessons (10) | [backend/docs/lessons/django/](./backend/docs/lessons/django/) |
+
+**Not sure where to start?** Check the [Contributing Guide](./docs/CONTRIBUTING.md) for the complete Git workflow and first-task suggestions!
 
 ---
 
 ## 📞 Get Help & Connect
 
-### 🎓 Learning & Community
-- **YouTube:** [@aparsoft-ai](https://youtube.com/@aparsoft-ai) - Main tutorial channel
-- **Discord:** [Join our community](https://aparsoft.com/discord) - Get help from fellow learners
-- **GitHub Discussions:** Ask questions about the code
-- **LinkedIn:** [/company/aparsoft](https://linkedin.com/company/aparsoft) - Articles and tips
-
-### 🐛 Found a Bug?
-- **GitHub Issues:** [Report it here](https://github.com/aparsoft/django-nextjs-chatbot/issues)
-- **Urgent help:** support@aparsoft.com
-
-### 💼 Want Us to Build For You?
-If you need a custom AI solution for your business (beyond learning):
+- **YouTube:** [@aparsoft-ai](https://youtube.com/@aparsoft-ai)
+- **LinkedIn:** [/company/aparsoft](https://linkedin.com/company/aparsoft)
+- **GitHub Issues:** [Report bugs here](https://github.com/aparsoft/django-nextjs-chatbot/issues)
 - **Website:** [aparsoft.com](https://aparsoft.com)
-- **Email:** contact@aparsoft.com
-- **Phone:** +91 8904064878
 
 ---
 
@@ -498,31 +258,4 @@ This code is provided for educational purposes. Feel free to learn from it, modi
 
 ---
 
-## 🌟 Support This Project
-
-**If this helped you learn:**
-- ⭐ **Star this repo** - Helps others find it
-- 🎥 **Subscribe on YouTube** - [@aparsoft](https://youtube.com/@aparsoft)
-- 📢 **Share with friends** - Help others learn too
-- 💬 **Join discussions** - Share what you built!
-- ☕ **Say thanks** - Tag us when you deploy your chatbot
-
----
-
-## 🚀 What's Next?
-
-Once you complete this tutorial, you can:
-
-1. **Build on it** - Add features like voice input, file uploads, etc.
-2. **Share your version** - Show us what you created!
-3. **Learn more** - We have advanced tutorials for RAG, agents, and more
-4. **Join our community** - Help other learners on their journey
-5. **Build for real** - Use this as foundation for actual projects
-
----
-
-*"Learning AI Together, One Chatbot at a Time"*
-
-**Built with ❤️ by the Aparsoft Team in Bengaluru, India**
-
-**Ready to start?** [▶️ Watch the first video](https://youtube.com/@aparsoft) and code along!
+*Built with ❤️ by the Aparsoft Team in Bengaluru, India*
