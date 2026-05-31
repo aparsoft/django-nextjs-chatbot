@@ -35,8 +35,9 @@ api_v1_patterns: URLPatternsList = [
         SpectacularRedocView.as_view(url_name="api_v1:api-schema"),
         name="redoc",
     ),
-    # # Accounts/Authentication endpoints
-    # path("accounts/", include(("accounts.api.urls", "accounts"), namespace="accounts")),
+    # Accounts/Authentication endpoints
+    path("accounts/", include(("accounts.api.urls", "accounts"), namespace="accounts")),
+    # Chatbot endpoints (add when chatbot/api/urls.py is ready)
     # path("chatbot/", include(("chatbot.api.urls", "chatbot"), namespace="chatbot")),
 ]
 
