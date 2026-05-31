@@ -1,5 +1,3 @@
-# /home/ram/aparsoft/backend/apps/accounts/apps.py
-
 from django.apps import AppConfig
 
 
