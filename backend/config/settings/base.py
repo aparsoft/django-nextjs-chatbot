@@ -251,14 +251,39 @@ REST_FRAMEWORK = {
 
 SPECTACULAR_SETTINGS = {
     "TITLE": "ConvoInsight API",
-    "DESCRIPTION": "API for the ConvoInsight - Customer Conversational Intelligence Platform",
-    "VERSION": "0.2.0",
+    "DESCRIPTION": "API for the ConvoInsight — Customer Conversational Intelligence Platform",
+    "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
     "COMPONENT_SPLIT_REQUEST": True,
     "SCHEMA_PATH_PREFIX": r"/api/v[0-9]+/",
-    # NOTE: Two cosmetic enum-naming warnings about a shared `status` field across
-    # Order / OrderTracking / Conversation are accepted in Step 1. They do not
-    # affect schema correctness. Will be addressed in Step 2 if needed.
+    # ----- Tags for grouping in Swagger UI -----
+    "TAGS": [
+        {"name": "Authentication", "description": "Login, logout, registration, password management"},
+        {"name": "Users", "description": "User account CRUD and profile actions"},
+        {"name": "User Contacts", "description": "User contact information"},
+        {"name": "Profile", "description": "Avatar and profile picture management"},
+    ],
+    # ----- Security schemes -----
+    "SECURITY": [{"BearerAuth": []}],
+    "APPEND_COMPONENTS": {
+        "securitySchemes": {
+            "BearerAuth": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "JWT",
+            }
+        }
+    },
+    # ----- Swagger UI tweaks -----
+    "SWAGGER_UI_SETTINGS": {
+        "persistAuthorization": True,
+        "displayOperationId": False,
+    },
+    # ----- Misc -----
+    "DISABLE_ERRORS_AND_WARNINGS": False,
+    "ENUM_NAME_OVERRIDES": {
+        "StatusEnum": ["status"],
+    },
 }
 # =============================================================================
 # JWT Authentication (Step 2)
