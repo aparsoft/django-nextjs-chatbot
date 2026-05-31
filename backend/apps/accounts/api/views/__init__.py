@@ -1,22 +1,23 @@
-# /home/ram/aparsoft/backend/apps/accounts/api/views/__init__.py
+# accounts/api/views/__init__.py
 
 """
 ViewSets package for accounts API.
 """
-# Auth view
+
+# Auth views
 from .auth_views import (
     CustomTokenObtainPairView,
     LogoutView,
 )
 
-# Auth register view
+# Auth register views
 from .auth_register_views import (
     RegisterView,
     OrganizationRegisterView,
     CSRFTokenView,
 )
 
-# Auth password reset view
+# Auth password reset views
 from .auth_password_reset_views import (
     PasswordResetView,
     PasswordResetConfirmView,
@@ -30,60 +31,27 @@ from .custom_user_views import (
     UserContactViewSet,
 )
 
-# Developer viewsets
-from .developer_views import (
-    DeveloperProfileViewSet,
-)
-
-# Client viewsets
-from .client_views import (
-    ClientProfileViewSet,
-)
-
-# ProjectManager viewsets
-from .project_manager_views import (
-    ProjectManagerProfileViewSet,
-)
-
-# AccountManager viewsets
-from .account_manager_views import (
-    AccountManagerProfileViewSet,
-)
-
-# Team viewsets
-from .team_views import (
-    TeamViewSet,
-)
-
 # Profile avatar views
 from .profile_avatar_views import (
     ProfileAvatarView,
 )
 
 __all__ = [
-    # Auth viewsets
+    # Auth
     "CustomTokenObtainPairView",
     "LogoutView",
+    # Registration
     "RegisterView",
-    "PasswordChangeView",
-    "CSRFTokenView",
-    "EmailVerificationView",
-    "PasswordResetView",
     "OrganizationRegisterView",
+    "CSRFTokenView",
+    # Password management
+    "PasswordResetView",
     "PasswordResetConfirmView",
-    # CustomUser viewsets
+    "PasswordChangeView",
+    "EmailVerificationView",
+    # User management
     "CustomUserViewSet",
     "UserContactViewSet",
-    # Developer viewsets
-    "DeveloperProfileViewSet",
-    # Client viewsets
-    "ClientProfileViewSet",
-    # ProjectManager viewsets
-    "ProjectManagerProfileViewSet",
-    # AccountManager viewsets
-    "AccountManagerProfileViewSet",
-    # Team viewsets
-    "TeamViewSet",
-    # Profile avatar views
+    # Profile
     "ProfileAvatarView",
 ]
