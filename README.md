@@ -32,50 +32,67 @@ This is a **learning-focused repository** designed to teach developers how to in
 
 ## ⚡ Quick Start
 
-### Option 1: Docker (Recommended)
+> **Django, Celery, and Next.js run locally** — only Postgres and Redis are Dockerized.
+> This is the standard Django developer workflow: instant hot-reload, `pdb` breakpoints, real stack traces.
+
+### Step 1: Start Infrastructure (Docker)
 
 ```bash
-# 1. Clone the repo
+# Clone
 git clone https://github.com/aparsoft/django-nextjs-chatbot.git
 cd django-nextjs-chatbot
 
-# 2. Create .env file and add your OpenAI API key
-cp .env.example .env
-# Edit .env → set OPENAI_API_KEY=sk-proj-...
+# Start Postgres + Redis
+docker compose up -d
 
-# 3. Start everything
-docker-compose up --build
+# Verify they're healthy
+docker compose ps
+# Should show chatbot-db (healthy) and chatbot-redis (healthy)
 ```
 
-That's it! Everything auto-configures:
-- ✅ PostgreSQL 17 + pgvector extension installed
-- ✅ Three databases created: `chatbot_db`, `langchain_pgvector`, `langchain_history`
-- ✅ Database migrations run automatically
-- ✅ Superuser created (`admin` / `admin123`)
-- ✅ Static files collected
-- ✅ All services start and connect
+This creates **three databases automatically**:
+- `chatbot_db` — Django models
+- `langchain_pgvector` — pgvector embeddings
+- `langchain_history` — LangGraph checkpoints
 
-### Option 2: Run Backend Locally (for development)
+### Step 2: Set Up Environment
 
 ```bash
-# 1. Start only infrastructure
-docker-compose up db redis -d
+cp .env.example .env
+# Edit .env → set OPENAI_API_KEY=sk-proj-...
+```
 
-# 2. Set up backend
+### Step 3: Run Backend (local)
+
+```bash
 cd backend
-python -m venv venv
-source venv/bin/activate    # Linux/Mac
-# venv\Scripts\activate     # Windows
+python3 -m venv venv
+source venv/bin/activate        # Linux/Mac
 pip install -r requirements.txt
-
-# 3. Configure environment
-cp ../.env.example ../.env.local
-# Edit .env.local → set your OPENAI_API_KEY
-
-# 4. Run migrations & start
 python manage.py migrate
 python manage.py createsuperuser
 python manage.py runserver
+```
+
+### Step 4: Run Celery Workers (local, separate terminals)
+
+```bash
+# Terminal 2 — Celery worker
+cd backend && source venv/bin/activate
+celery -A config worker --loglevel=info
+
+# Terminal 3 — Celery beat (scheduler)
+cd backend && source venv/bin/activate
+celery -A config beat --loglevel=info
+```
+
+### Step 5: Run Frontend (local, separate terminal)
+
+```bash
+# Terminal 4
+cd frontend
+npm install
+npm run dev
 ```
 
 ### Access Your Application
@@ -84,7 +101,7 @@ python manage.py runserver
 |---------|-----|-------------|
 | **Frontend** | http://localhost:3000 | — |
 | **Backend API** | http://localhost:8000/api/v1/ | — |
-| **Django Admin** | http://localhost:8000/chatbot-admin/ | admin / admin123 |
+| **Django Admin** | http://localhost:8000/chatbot-admin/ | (your superuser) |
 | **PostgreSQL** | localhost:**5433** | chatbot_user / chatbot_pass |
 | **Redis** | localhost:**6380** | — |
 
@@ -122,7 +139,7 @@ New to the project? Start here:
 - **LangGraph PostgresSaver** — conversation checkpoint persistence
 
 ### Infrastructure
-- **Docker Compose** — multi-container orchestration with health checks
+- **Docker Compose** — Postgres + Redis only (Django runs locally for hot-reload)
 - **pgvector/pgvector:pg17** — PostgreSQL image with pgvector pre-installed
 
 ---
@@ -130,32 +147,37 @@ New to the project? Start here:
 ## 📊 System Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     Docker Compose                           │
+┌─ YOUR MACHINE (local processes) ────────────────────────────┐
 │                                                              │
-│  ┌──────────┐     ┌──────────────────────────────────┐      │
-│  │  Next.js │────▶│         Django Backend            │      │
-│  │  :3000   │     │         :8000                     │      │
-│  └──────────┘     │  ┌────────────┐ ┌─────────────┐  │      │
-│                   │  │  Celery     │ │ Celery Beat │  │      │
-│                   │  │  (worker)   │ │ (scheduler)  │  │      │
-│                   │  └────────────┘ └─────────────┘  │      │
-│                   └──────────┬───────────────────────┘      │
-│                              │                               │
-│              ┌───────────────┼───────────────┐               │
-│              ▼               ▼               ▼               │
-│  ┌──────────────────┐ ┌───────────┐ ┌──────────────┐        │
-│  │ PostgreSQL 17    │ │  Redis 7  │ │  OpenAI API  │        │
-│  │ + pgvector       │ │  :6380    │ │  (external)  │        │
-│  │ :5433            │ │           │ │              │        │
-│  │                  │ │ • cache   │ │ • GPT models │        │
-│  │ • chatbot_db     │ │ • broker  │ │ • embeddings │        │
-│  │ • langchain_     │ │ • channels│ │              │        │
-│  │   pgvector       │ │           │ │              │        │
-│  │ • langchain_     │ │           │ │              │        │
-│  │   history        │ │           │ │              │        │
-│  └──────────────────┘ └───────────┘ └──────────────┘        │
-└─────────────────────────────────────────────────────────────┘
+│  Terminal 1          Terminal 2          Terminal 3          │
+│  ┌──────────┐        ┌──────────┐        ┌──────────┐       │
+│  │ Django   │        │ Celery   │        │ Celery   │       │
+│  │ :8000    │        │ worker   │        │ beat     │       │
+│  └────┬─────┘        └────┬─────┘        └────┬─────┘       │
+│       │                   │                   │              │
+│       └───────────────────┼───────────────────┘              │
+│                           │                                  │
+│  Terminal 4               │        ┌──────────────┐          │
+│  ┌──────────┐             │        │  OpenAI API  │          │
+│  │ Next.js  │─────────────┤        │  (external)  │          │
+│  │ :3000    │             │        └──────────────┘          │
+│  └──────────┘             │                                  │
+└───────────────────────────┼──────────────────────────────────┘
+                            │
+┌─ DOCKER (infrastructure) ─┼──────────────────────────────────┐
+│                            ▼                                  │
+│  ┌──────────────────┐ ┌───────────┐                          │
+│  │ PostgreSQL 17    │ │  Redis 7  │                          │
+│  │ + pgvector       │ │  :6380    │                          │
+│  │ :5433            │ │           │                          │
+│  │                  │ │ db0: cache│                          │
+│  │ • chatbot_db     │ │ db1: broker                         │
+│  │ • langchain_     │ │ db2: results                        │
+│  │   pgvector       │ │           │                          │
+│  │ • langchain_     │ │           │                          │
+│  │   history        │ │           │                          │
+│  └──────────────────┘ └───────────┘                          │
+└──────────────────────────────────────────────────────────────┘
 ```
 
 ### Database Architecture
