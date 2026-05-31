@@ -148,6 +148,10 @@ class TokenUsage(TimestampedModel):
     def __str__(self):
         return f"{self.user.email} - {self.total_tokens} tokens - ${self.total_cost}"
 
+    # ------------------------------------------------------------------
+    # Instance methods
+    # ------------------------------------------------------------------
+
     def save(self, *args, **kwargs):
         """Calculate total tokens and cost before saving."""
         # Calculate total tokens
@@ -159,6 +163,31 @@ class TokenUsage(TimestampedModel):
         self.total_cost = self.prompt_cost + self.completion_cost
 
         super().save(*args, **kwargs)
+
+    def to_display_dict(self):
+        """
+        Return a serializable dict for API responses.
+
+        Converts Decimals to floats for JSON compatibility.
+        """
+        return {
+            "id": self.id,
+            "model_name": self.model_name,
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.completion_tokens,
+            "total_tokens": self.total_tokens,
+            "reasoning_tokens": self.reasoning_tokens,
+            "total_cost": float(self.total_cost),
+            "request_type": self.request_type,
+            "response_time_ms": self.response_time_ms,
+            "was_cached": self.was_cached,
+            "had_error": self.had_error,
+            "created_at": self.created_at.isoformat(),
+        }
+
+    # ------------------------------------------------------------------
+    # Class methods — cost calculation
+    # ------------------------------------------------------------------
 
     @classmethod
     def calculate_cost(
@@ -229,11 +258,14 @@ class TokenUsage(TimestampedModel):
             "total_cost": prompt_cost + completion_cost,
         }
 
+    # ------------------------------------------------------------------
+    # Class methods — usage queries
+    # ------------------------------------------------------------------
+
     @classmethod
     def get_user_usage_today(cls, user):
         """Get user's token usage for today."""
         from django.utils import timezone
-        from datetime import timedelta
 
         today_start = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
 
@@ -250,6 +282,123 @@ class TokenUsage(TimestampedModel):
         }
 
     @classmethod
+    def get_user_usage_range(cls, user, start_date, end_date):
+        """
+        Get user's token usage for a date range.
+
+        Args:
+            user: User instance
+            start_date: Start of range (datetime)
+            end_date: End of range (datetime)
+
+        Returns:
+            dict with total_tokens, total_cost, message_count, avg_response_time_ms
+        """
+        usage = cls.objects.filter(
+            user=user,
+            created_at__gte=start_date,
+            created_at__lte=end_date,
+        ).aggregate(
+            total_tokens=models.Sum("total_tokens"),
+            total_cost=models.Sum("total_cost"),
+            message_count=models.Count("id"),
+            avg_response_time=models.Avg("response_time_ms"),
+        )
+
+        return {
+            "total_tokens": usage["total_tokens"] or 0,
+            "total_cost": usage["total_cost"] or Decimal("0.00"),
+            "message_count": usage["message_count"] or 0,
+            "avg_response_time_ms": round(usage["avg_response_time"] or 0),
+        }
+
+    @classmethod
+    def get_model_breakdown(cls, user):
+        """
+        Get token usage breakdown by AI model.
+
+        Returns:
+            list of dicts: [{'model_name': str, 'total_tokens': int,
+                             'total_cost': Decimal, 'request_count': int}]
+        """
+        breakdown = (
+            cls.objects.filter(user=user)
+            .values("model_name")
+            .annotate(
+                total_tokens=models.Sum("total_tokens"),
+                total_cost=models.Sum("total_cost"),
+                request_count=models.Count("id"),
+            )
+            .order_by("-total_cost")
+        )
+
+        return list(breakdown)
+
+    @classmethod
+    def get_session_usage(cls, chat_session):
+        """
+        Get total token usage for a specific chat session.
+
+        Args:
+            chat_session: ChatSession instance
+
+        Returns:
+            dict with totals
+        """
+        usage = cls.objects.filter(chat_session=chat_session).aggregate(
+            total_tokens=models.Sum("total_tokens"),
+            total_cost=models.Sum("total_cost"),
+            prompt_tokens=models.Sum("prompt_tokens"),
+            completion_tokens=models.Sum("completion_tokens"),
+            request_count=models.Count("id"),
+        )
+
+        return {
+            "total_tokens": usage["total_tokens"] or 0,
+            "total_cost": usage["total_cost"] or Decimal("0.00"),
+            "prompt_tokens": usage["prompt_tokens"] or 0,
+            "completion_tokens": usage["completion_tokens"] or 0,
+            "request_count": usage["request_count"] or 0,
+        }
+
+    @classmethod
+    def get_daily_cost_trend(cls, user, days=30):
+        """
+        Get daily cost trend for a user (for charting in the dashboard).
+
+        Args:
+            user: User instance
+            days: Number of days to look back
+
+        Returns:
+            list of dicts: [{'date': str, 'total_cost': float, 'total_tokens': int}]
+        """
+        from django.utils import timezone
+        from datetime import timedelta
+
+        start = timezone.now() - timedelta(days=days)
+
+        daily = (
+            cls.objects.filter(user=user, created_at__gte=start)
+            .extra({"date": "date(created_at)"})
+            .values("date")
+            .annotate(
+                total_cost=models.Sum("total_cost"),
+                total_tokens=models.Sum("total_tokens"),
+            )
+            .order_by("date")
+        )
+
+        return [
+            {
+                "date": str(entry["date"]),
+                "total_cost": float(entry["total_cost"] or 0),
+                "total_tokens": entry["total_tokens"] or 0,
+            }
+            for entry in daily
+        ]
+
+    @classmethod
     def check_user_limits(cls, user, additional_tokens=0):
         """
         Check if user has exceeded daily limits.
@@ -263,7 +412,7 @@ class TokenUsage(TimestampedModel):
         """
         try:
             preferences = user.ai_preferences
-        except:
+        except Exception:
             # No preferences set, allow
             return {"allowed": True, "reason": "No limits set", "usage": {}}
 
@@ -293,3 +442,50 @@ class TokenUsage(TimestampedModel):
                 }
 
         return {"allowed": True, "reason": "Within limits", "usage": usage_today}
+
+    @classmethod
+    def create_from_response(cls, user, chat_session, response, response_time_ms=None):
+        """
+        Create a TokenUsage record from an LLM API response object.
+
+        Handles the common pattern of extracting usage data from
+        OpenAI/Anthropic response objects.
+
+        Args:
+            user: User instance
+            chat_session: ChatSession instance
+            response: API response object with .usage attribute
+            response_time_ms: Optional response time in ms
+
+        Returns:
+            TokenUsage instance
+        """
+        usage = getattr(response, "usage", None)
+
+        prompt_tokens = getattr(usage, "prompt_tokens", 0) if usage else 0
+        completion_tokens = getattr(usage, "completion_tokens", 0) if usage else 0
+        reasoning_tokens = getattr(usage, "completion_tokens_details", None)
+        if reasoning_tokens:
+            reasoning_tokens = getattr(reasoning_tokens, "reasoning_tokens", 0)
+
+        model_name = getattr(response, "model", "gpt-4o-mini")
+
+        costs = cls.calculate_cost(
+            model_name=model_name,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            reasoning_tokens=reasoning_tokens or 0,
+        )
+
+        return cls.objects.create(
+            user=user,
+            chat_session=chat_session,
+            model_name=model_name,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            reasoning_tokens=reasoning_tokens or 0,
+            prompt_cost=costs["prompt_cost"],
+            completion_cost=costs["completion_cost"],
+            total_cost=costs["total_cost"],
+            response_time_ms=response_time_ms,
+        )
