@@ -1,15 +1,20 @@
 """
 Agent Service — LangGraph ReAct Agent with PGVector Memory
 
-Builds a production-ready ``create_react_agent`` graph backed by
-``PostgresSaver`` for conversation checkpointing.  Wraps everything in
-an orchestrator that wires together:
+Builds a production-ready ``create_agent`` graph (from ``langchain.agents``)
+backed by ``PostgresSaver`` for conversation checkpointing.  Wraps everything
+in an orchestrator that wires together:
 
-- LLM (ChatOpenAI via session model_name / temperature)
+- LLM (via ``"openai:gpt-4o-mini"`` model strings or ChatOpenAI instances)
 - PostgresSaver checkpointer (PG_CHECKPOINT_URI)
-- SummarizationService (as pre_model_hook)
+- SummarizationMiddleware (compresses long conversations before LLM calls)
 - ToolService (loads enabled LangChain tools)
 - VectorStorageService (RAG document retrieval as a tool)
+
+Uses the **latest LangChain v1.x / LangGraph v1.x** API:
+    - ``langchain.agents.create_agent`` (replaces deprecated ``create_react_agent``)
+    - ``system_prompt=`` (replaces ``prompt=``)
+    - ``middleware=`` (replaces ``pre_model_hook=`` / ``post_model_hook=``)
 
 Usage:
     from chatbot.services import AgentService
@@ -22,28 +27,30 @@ Usage:
     result = orchestrator.invoke("Tell me about Python")
 
 Architecture:
-    ┌────────────────────────────────────────────────┐
-    │                ChatAgentOrchestrator           │
-    │  ┌──────────────────────────────────────────┐  │
-    │  │   create_react_agent (LangGraph v2)      │  │
-    │  │   ┌─────────┐  ┌─────────┐  ┌─────────┐  │  │
-    │  │   │  LLM    │→ │  Tools  │→│ Checkptr │  │  │
-    │  │   └─────────┘  └─────────┘  └─────────┘  │  │
-    │  │   pre_model_hook: summarization          │  │
-    │  └──────────────────────────────────────────┘  │
-    │  + session analytics, token tracking           │
-    └────────────────────────────────────────────────┘
+    ┌──────────────────────────────────────────────────────────┐
+    │                  ChatAgentOrchestrator                   │
+    │  ┌────────────────────────────────────────────────────┐  │
+    │  │   create_agent (langchain.agents — LangChain v1)   │  │
+    │  │   ┌──────────┐  ┌──────────┐  ┌──────────────────┐ │  │
+    │  │   │   LLM    │→ │  Tools   │→ │  PostgresSaver   │ │  │
+    │  │   └──────────┘  └──────────┘  └──────────────────┘ │  │
+    │  │   middleware: [SummarizationMiddleware]            │  │
+    │  │   system_prompt: session-based                     │  │
+    │  └────────────────────────────────────────────────────┘  │
+    │  + session analytics, token tracking                     │
+    └──────────────────────────────────────────────────────────┘
 """
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TypedDict
 
 from django.conf import settings
+from langchain.agents import create_agent
+from langchain.agents.middleware import AgentMiddleware
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langchain_core.tools import tool as lc_tool
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.postgres import PostgresSaver
-from langgraph.prebuilt import create_react_agent
 
 from ..models import ChatSession
 from .summarization_service import SummarizationService
@@ -51,6 +58,73 @@ from .tool_service import ToolService
 from .vector_storage_service import VectorStorageService
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Summarization Middleware — compresses long conversations before LLM calls
+# ---------------------------------------------------------------------------
+
+
+class SummarizationMiddleware(AgentMiddleware):
+    """
+    Middleware that compresses conversation history before each LLM call.
+
+    Replaces the old ``pre_model_hook`` pattern with the composable
+    middleware system introduced in LangChain v1.x.
+
+    How it works:
+        1. ``before_model`` is called before every LLM invocation
+        2. If the conversation exceeds the token threshold, older
+           messages are summarized into a single SystemMessage
+        3. Recent messages are kept intact for continuity
+
+    Usage (automatically wired by ChatAgentOrchestrator)::
+
+        from langchain.agents import create_agent
+
+        agent = create_agent(
+            model="openai:gpt-4o-mini",
+            tools=[...],
+            middleware=[SummarizationMiddleware(session)],
+            checkpointer=checkpointer,
+        )
+    """
+
+    def __init__(self, session: ChatSession):
+        self._session = session
+        self._config = SummarizationService.get_session_config(session)
+
+    def before_model(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Compress messages before sending to the LLM.
+
+        This is the middleware equivalent of the old ``pre_model_hook``.
+        """
+        if not self._config.get("enabled", True):
+            return state
+
+        messages = state.get("messages", [])
+
+        if not SummarizationService.should_summarize(
+            messages, self._config.get("threshold", 384)
+        ):
+            return state
+
+        compressed = SummarizationService.compress_messages(
+            messages=messages,
+            keep_recent=self._config.get("keep_recent", 10),
+            model_name=self._config.get("model_name", "gpt-4o-mini"),
+            max_summary_tokens=self._config.get("max_summary_tokens", 128),
+            style=self._config.get("style", "concise"),
+        )
+
+        logger.info(
+            "SummarizationMiddleware: compressed %d → %d messages",
+            len(messages),
+            len(compressed),
+        )
+
+        return {**state, "messages": compressed}
 
 
 # ---------------------------------------------------------------------------
@@ -178,8 +252,13 @@ def get_checkpointer() -> PostgresSaver:
 
 class ChatAgentOrchestrator:
     """
-    High-level orchestrator that owns a compiled ``create_react_agent``
-    graph and provides ``invoke`` / ``stream`` methods.
+    High-level orchestrator that owns a compiled ``create_agent`` graph
+    and provides ``invoke`` / ``stream`` methods.
+
+    Uses the **latest LangChain v1.x** API:
+        - ``create_agent`` from ``langchain.agents``
+        - ``system_prompt=`` instead of ``prompt=``
+        - ``middleware=`` instead of ``pre_model_hook=``
 
     Usage::
 
@@ -198,30 +277,24 @@ class ChatAgentOrchestrator:
         self.user = session.user
         self.recursion_limit = recursion_limit
 
-        # LLM from session settings
-        self.llm = ChatOpenAI(
-            model=session.model_name,
-            temperature=session.temperature,
-        )
-
-        # Tools
+        # Tools for this user
         self.tools = load_tools_for_user(self.user)
 
-        # Checkpointer
+        # Checkpointer (PostgresSaver singleton)
         self.checkpointer = get_checkpointer()
 
-        # Summarization hook (reads session + user preferences)
-        self.pre_model_hook = SummarizationService.make_pre_model_hook(session)
+        # Middleware — summarization before LLM calls
+        self.middleware = [SummarizationMiddleware(session)]
 
         # System prompt
         self.system_prompt = system_prompt or self._build_system_prompt()
 
-        # Build the compiled agent graph
-        self.agent = create_react_agent(
-            model=self.llm,
+        # Build the compiled agent graph using the NEW create_agent API
+        self.agent = create_agent(
+            model=f"openai:{session.model_name}",
             tools=self.tools,
-            prompt=self.system_prompt,
-            pre_model_hook=self.pre_model_hook,
+            system_prompt=self.system_prompt,
+            middleware=self.middleware,
             checkpointer=self.checkpointer,
         )
 
@@ -292,7 +365,6 @@ class ChatAgentOrchestrator:
                 break
 
         # Update session analytics
-        msg_count = sum(1 for m in result.get("messages", []))
         self.session.update_analytics(message_count=2)  # human + assistant
 
         # Auto-title on first exchange
@@ -304,16 +376,18 @@ class ChatAgentOrchestrator:
             "messages": result.get("messages", []),
             "session": self.session,
             "tokens_used": (
-                getattr(result.get("messages", [None])[-1], "usage_metadata", {}).get(
-                    "total_tokens", 0
-                )
+                getattr(
+                    result.get("messages", [None])[-1],
+                    "usage_metadata",
+                    {},
+                ).get("total_tokens", 0)
                 if result.get("messages")
                 else 0
             ),
         }
 
     # ------------------------------------------------------------------
-    # Stream (async generator — for WebSocket / SSE)
+    # Stream (generator — for WebSocket / SSE)
     # ------------------------------------------------------------------
 
     def stream(self, user_message: str):
@@ -323,7 +397,6 @@ class ChatAgentOrchestrator:
         Usage::
 
             for event in orchestrator.stream("Hello"):
-                # event is a dict like {"agent": {"messages": [...]}}
                 print(event)
         """
         logger.info(
