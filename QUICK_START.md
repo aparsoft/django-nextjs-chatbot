@@ -1,40 +1,70 @@
 # 🚀 Quick Start Guide
 
-## One-Command Setup
-
-```bash
-# 1. Clone the repo
-git clone https://github.com/aparsoft/django-nextjs-chatbot.git
-cd django-nextjs-chatbot
-
-# 2. Setup environment
-cp .env.example .env
-# Edit .env and add your OPENAI_API_KEY
-
-# 3. Start everything with watch mode (auto-reload on code changes)
-./start.sh
-```
-
-That's it! 🎉
-
-> **💡 Pro Tip:** The `./start.sh` script starts Docker with **watch mode** enabled - your code changes automatically sync without rebuilding! Perfect for development.
+> **Django, Celery, and Next.js run locally** — only Postgres and Redis are Dockerized.
+> This is how Django devs generally work: hot-reload, `pdb` breakpoints, real stack traces.
 
 ---
 
-## What Happens Automatically?
+## Setup (5 minutes)
 
-When you run `./start.sh`, the system automatically:
+### 1. Clone & configure
 
-1. **Checks for Backups** - Offers to restore from previous backup (if available)
-2. **Builds Images** - Installs all dependencies
-3. **Waits for PostgreSQL** - Ensures database is ready
-4. **Runs Migrations** - Creates all database tables
-5. **Creates Superuser** - Admin account ready to use (`admin` / `admin123`)
-6. **Collects Static Files** - Prepares assets
-7. **Starts with Watch Mode** - Auto-reloads on code changes:
-   - **Backend**: Python files sync + Django auto-reload
-   - **Frontend**: Source files sync + Next.js hot-reload
-   - **Celery**: Changes sync + worker restart
+```bash
+git clone https://github.com/aparsoft/django-nextjs-chatbot.git
+cd django-nextjs-chatbot
+
+# Create your .env from the template
+cp .env.example .env
+# Edit .env → add your OPENAI_API_KEY
+```
+
+### 2. Start infrastructure (Docker)
+
+```bash
+docker compose up -d
+
+# Verify both services are healthy
+docker compose ps
+# Should show: chatbot-db (healthy), chatbot-redis (healthy)
+```
+
+This creates **three databases** automatically:
+- `chatbot_db` — Django models
+- `langchain_pgvector` — pgvector embeddings for RAG
+- `langchain_history` — LangGraph checkpoints
+
+### 3. Backend (local)
+
+```bash
+cd backend
+python3 -m venv venv
+source venv/bin/activate        # Linux/Mac
+pip install -r requirements.txt
+python manage.py migrate
+python manage.py createsuperuser
+python manage.py runserver
+```
+
+### 4. Celery workers (local, separate terminals)
+
+```bash
+# Terminal 2 — worker
+cd backend && source venv/bin/activate
+celery -A config worker --loglevel=info
+
+# Terminal 3 — beat scheduler
+cd backend && source venv/bin/activate
+celery -A config beat --loglevel=info
+```
+
+### 5. Frontend (local, separate terminal)
+
+```bash
+# Terminal 4
+cd frontend
+npm install
+npm run dev
+```
 
 ---
 
@@ -42,166 +72,120 @@ When you run `./start.sh`, the system automatically:
 
 | Service | URL | Credentials |
 |---------|-----|-------------|
-| **Frontend** | http://localhost:3000 | - |
-| **Backend API** | http://localhost:8000 | - |
-| **Django Admin** | http://localhost:8000/chatbot-admin/ | `admin` / `admin123` |
-| **PostgreSQL** | localhost:5433 | `chatbot_user` / `chatbot_pass` |
-| **Redis** | localhost:6380 | - |
-
----
-
-## Default Superuser
-
-- **Username:** `admin`
-- **Password:** `admin123`
-- **Email:** `admin@aparsoft.com`
-
-⚠️ **Important:** Change this password immediately in production!
-
-To change the password:
-```bash
-docker-compose exec backend python manage.py changepassword admin
-```
-
----
-
-## First Time Setup Checklist
-
-- [x] Clone repository
-- [x] Copy `.env.example` to `.env`
-- [x] Add your `OPENAI_API_KEY` to `.env`
-- [x] Make scripts executable: `chmod +x *.sh` (already done in repo)
-- [x] Run `./start.sh`
-- [ ] Wait for all services to start (watch the logs)
-- [ ] Open http://localhost:3000
-- [ ] Login to admin at http://localhost:8000/chatbot-admin/
-- [ ] Start building your chatbot! 🤖
+| **Frontend** | http://localhost:3000 | — |
+| **Backend API** | http://localhost:8000/api/v1/ | — |
+| **Django Admin** | http://localhost:8000/chatbot-admin/ | (your superuser) |
+| **PostgreSQL** | localhost:**5433** | chatbot_user / chatbot_pass |
+| **Redis** | localhost:**6380** | — |
 
 ---
 
 ## Common Commands
 
-### 🎬 Start/Stop Services
+### Infrastructure (Docker)
 
 ```bash
-# Start with watch mode (recommended for development)
-./start.sh
-
-# Stop services (Ctrl+C when running, or:)
-docker compose down
-
-# Clean up everything (interactive - backs up database first!)
-./cleanup.sh
+docker compose up -d           # Start Postgres + Redis
+docker compose down            # Stop
+docker compose down -v         # Stop + wipe volumes (fresh start)
+docker compose logs -f db      # Follow Postgres logs
+docker compose ps              # Check service health
 ```
 
-### 💾 Database Backup & Restore
+### Backend (local)
 
 ```bash
-# Create manual backup anytime
-./backup.sh
+cd backend && source venv/bin/activate
 
-# Restore from backup (prompted during ./start.sh)
-./start.sh
-# Choose 'y' when asked about restore, select backup from list
+python manage.py runserver                  # Start dev server
+python manage.py migrate                    # Apply migrations
+python manage.py makemigrations chatbot     # Generate migrations
+python manage.py shell                      # Interactive Django shell
+python manage.py createsuperuser            # Create admin user
+python manage.py test apps.chatbot          # Run tests
 ```
 
-> **🔒 Safety Feature:** The `cleanup.sh` script automatically backs up your database before removing volumes - no data loss!
+### Celery (local, separate terminals)
 
-### 📋 View Logs
 ```bash
-# All services
-docker compose logs -f
+cd backend && source venv/bin/activate
 
-# Specific service
-docker compose logs -f backend
-docker compose logs -f frontend
-docker compose logs -f celery
+celery -A config worker --loglevel=info     # Worker
+celery -A config beat --loglevel=info       # Beat scheduler
+celery -A config inspect active             # Check active tasks
 ```
 
-### 🐚 Access Django Shell
+### Frontend (local)
+
 ```bash
-docker compose exec backend python manage.py shell
+cd frontend
+npm run dev          # Dev server
+npm run build        # Production build
+npm run lint         # Lint check
 ```
 
-### 👤 Create Another Superuser
-```bash
-docker compose exec backend python manage.py createsuperuser
-```
+---
 
-### 🔄 Run Migrations (if needed manually)
-```bash
-docker compose exec backend python manage.py migrate
-```
+## Your Daily Workflow
 
-### 🔁 Restart Specific Service
-```bash
-docker compose restart backend
-docker compose restart frontend
+```
+Terminal 1:  docker compose up -d                      # Postgres + Redis
+Terminal 2:  cd backend && python manage.py runserver   # Django
+Terminal 3:  celery -A config worker --loglevel=info    # Background jobs
+Terminal 4:  celery -A config beat --loglevel=info      # Scheduler
+Terminal 5:  cd frontend && npm run dev                 # Next.js
 ```
 
 ---
 
 ## Troubleshooting
 
-### Port Already in Use?
-
-If you see port conflicts, edit `docker-compose.yml`:
-- PostgreSQL: Change `5433:5432`
-- Redis: Change `6380:6379`
-- Backend: Change `8000:8000`
-- Frontend: Change `3000:3000`
-
-### Database Connection Issues?
-
-The entrypoint script waits for PostgreSQL. If issues persist:
+### "PGVECTOR_CONNECTION_STRING not found"
 ```bash
-docker compose restart backend
+# Make sure Docker containers are running
+docker compose up -d
+docker compose ps  # Both should show "healthy"
 ```
 
-### Frontend Not Loading?
-
-Check if all environment variables are set:
+### "ModuleNotFoundError: No module named 'django'"
 ```bash
-docker compose exec frontend env | grep NEXT_PUBLIC
+# You forgot to activate the virtual environment!
+cd backend && source venv/bin/activate
 ```
 
-### Code Changes Not Syncing?
-
-Docker Compose Watch should auto-sync changes. If not working:
-1. Stop with Ctrl+C
-2. Restart: `./start.sh`
-3. For dependency changes (package.json, requirements.txt), rebuild is required
-
-### Need to Rebuild After Dependency Changes?
-
+### "Connection refused" on port 5433
 ```bash
-# Stop current containers
-Ctrl+C
-
-# Start (automatically rebuilds images)
-./start.sh
+# Postgres isn't healthy yet — wait 10 seconds
+docker compose logs db
+docker compose restart db
 ```
 
-### Database Issues or Want Fresh Start?
-
+### Port 8000 already in use
 ```bash
-# Interactive cleanup (backs up database first!)
-./cleanup.sh
+lsof -i :8000          # Find what's using it
+kill -9 <PID>          # Kill it
+# Or use a different port:
+python manage.py runserver 8001
+```
 
-# Then start fresh
-./start.sh
+### Fresh start (wipe all data)
+```bash
+docker compose down -v             # Delete volumes
+docker compose up -d               # Recreate everything
+cd backend && source venv/bin/activate
+python manage.py migrate
+python manage.py createsuperuser
 ```
 
 ---
 
 ## Need Help?
 
-- **YouTube Tutorials:** [@aparsoft-ai](https://youtube.com/@aparsoft-ai)
-- **GitHub Issues:** [Report a bug](https://github.com/aparsoft/django-nextjs-chatbot/issues)
-- **Discord:** Ask in our community (link in YouTube description)
+- 📘 [Intern Onboarding Guide](./docs/INTERN_ONBOARDING.md) — day-by-day walkthrough
+- 🤝 [Contributing Guide](./docs/CONTRIBUTING.md) — Git workflow & code style
+- 📺 [YouTube Tutorials](https://youtube.com/@aparsoft-ai) — step-by-step videos
+- 🐛 [GitHub Issues](https://github.com/aparsoft/django-nextjs-chatbot/issues) — report bugs
 
 ---
-
-**Happy coding! 🚀**
 
 *Built with ❤️ by Aparsoft Team*
