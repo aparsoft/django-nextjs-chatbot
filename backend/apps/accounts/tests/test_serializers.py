@@ -12,7 +12,6 @@ from accounts.api.serializers.custom_user_serializers import (
     UserContactCreateSerializer,
     UserContactUpdateSerializer,
 )
-from accounts.models.custom_user import UserContact
 
 from . import AccountsTestMixin
 
@@ -34,9 +33,8 @@ class CustomUserSerializerTests(AccountsTestMixin, TestCase):
         self.assertNotIn("contact", data)
 
     def test_read_serializer_includes_contact(self):
-        """Full read serializer includes nested contact."""
+        """Full read serializer includes nested contact (auto-created by signal)."""
         user = self.create_user()
-        self.create_user_contact(user=user)
         data = CustomUserSerializer(user).data
         self.assertIn("contact", data)
         self.assertIsInstance(data["contact"], dict)
@@ -135,23 +133,30 @@ class CustomUserUpdateSerializerTests(AccountsTestMixin, TestCase):
 
 
 class UserContactSerializerTests(AccountsTestMixin, TestCase):
-    """Tests for UserContact serializers."""
+    """Tests for UserContact serializers.
+
+    Uses get_user_contact() / update_user_contact() since the signal
+    auto-creates contacts.
+    """
 
     def test_read_serializer_country_name(self):
         """Read serializer resolves country_name."""
         country = self.get_default_country()
         user = self.create_user()
-        contact = self.create_user_contact(user=user)
-        contact.country = country
-        contact.save()
+        self.update_user_contact(user, country=country)
 
+        contact = self.get_user_contact(user)
         data = UserContactSerializer(contact).data
         self.assertEqual(data["country_name"], "India")
 
     def test_read_serializer_country_name_null(self):
         """country_name is null when no country is set."""
         user = self.create_user()
-        contact = self.create_user_contact(user=user)
+        contact = self.get_user_contact(user)
+        # Ensure country is null
+        contact.country = None
+        contact.save()
+
         data = UserContactSerializer(contact).data
         self.assertIsNone(data["country_name"])
 
