@@ -12,7 +12,7 @@
 | Language | JavaScript (ES Modules) | — |
 | UI | React | 19.2.6 |
 | Styling | Tailwind CSS | 4.3.0 |
-| Auth | NextAuth.js v5 (Auth.js) | 5.0.0-beta.31 |
+| Auth | BFF Proxy (HttpOnly cookies) | — |
 | Testing | Vitest | 4.1.7 |
 | Testing Utils | Testing Library (React, DOM, User Event) | — |
 | Linting | ESLint (flat config) | 9 |
@@ -45,9 +45,13 @@ frontend/
 │   │       └── page.jsx        #   Token usage & costs
 │   │
 │   └── api/
-│       └── auth/
-│           └── [...nextauth]/  # ❌ TODO — Auth.js catch-all route handler
-│               └── route.js
+│       ├── auth/
+│       │   ├── login/route.js      # ❌ TODO — Login proxy → Django
+│       │   ├── refresh/route.js    # ❌ TODO — Token refresh proxy
+│       │   ├── logout/route.js     # ❌ TODO — Logout + blacklist proxy
+│       │   └── me/route.js         # ❌ TODO — Current user proxy
+│       └── proxy/
+│           └── [...path]/route.js  # ❌ TODO — Generic API proxy
 │
 ├── components/                 # ❌ TODO — Reusable UI components
 │   ├── ui/                     #   Buttons, inputs, cards, modals
@@ -55,14 +59,14 @@ frontend/
 │   └── layout/                 #   Sidebar, header, nav
 │
 ├── lib/                        # ❌ TODO — Shared utilities
-│   ├── api.js                  #   Axios/fetch wrapper with JWT refresh
-│   ├── auth-client.js          #   Client-side auth helpers
-│   └── ws.js                   #   WebSocket connection manager
+│   ├── api.js                  #   Server-side fetch (reads cookies, injects Bearer)
+│   ├── api-client.js           #   Client-side fetch (calls /api/proxy/...)
+│   ├── cookies.js              #   Cookie constants: names, max-ages, options
+│   └── ws.js                   #   (Phase 2) WebSocket with auth frame
 │
 ├── hooks/                      # ❌ TODO — Custom React hooks
 │   ├── useChat.js              #   Chat message state + streaming
-│   ├── useAuth.js              #   Session access shortcut
-│   └── useWebSocket.js         #   WebSocket connection lifecycle
+│   └── useWebSocket.js         #   WebSocket connection lifecycle (auth frame)
 │
 ├── __tests__/                  # ❌ TODO — Test files
 │   ├── auth.test.js
@@ -87,8 +91,8 @@ frontend/
 ├── eslint.config.mjs           # ESLint flat config (eslint-config-next)
 ├── jsconfig.json               # Path alias @/* → ./*
 ├── vitest.config.mjs           # ❌ TODO — Vitest configuration
-├── middleware.js                # ❌ TODO — Auth.js route protection
-├── auth.js                     # ❌ TODO — Auth.js configuration
+├── middleware.js                # ❌ TODO — Route protection (cookie existence check)
+├── auth.js                     # (not needed — removed from stack)
 ├── .env.local                  # Environment variables (gitignored)
 ├── .env.example                # Template for environment variables
 ├── Dockerfile                  # Dev-mode Docker image
@@ -102,11 +106,9 @@ frontend/
 | Variable | Example | Used by |
 |----------|---------|---------|
 | `NEXT_PUBLIC_API_URL` | `http://localhost:8000/api/v1` | API calls to Django backend |
+| `INTERNAL_API_URL` | `http://localhost:8000/api/v1` | Server-side API base (differs in Docker/production) |
 | `NEXT_PUBLIC_BASE_URL` | `http://localhost:8000` | Base backend URL (media, static) |
 | `NEXT_PUBLIC_WS_HOST` | `localhost:8000` | WebSocket connection host |
-| `AUTH_SECRET` | *(generate with `openssl rand -base64 32`)* | Auth.js session encryption |
-| `AUTH_TRUST_HOST` | `true` | Trust the host in auth callbacks |
-| `AUTH_URL` | `http://localhost:3000` | Canonical auth callback URL |
 | `NODE_ENV` | `development` | Next.js environment mode |
 
 > ⚠️ **Never commit `.env.local`!** Copy `.env.example` and fill in real values.
@@ -170,8 +172,12 @@ app/
 ├── login/
 │   └── page.jsx        #   → /login
 └── api/
-    └── auth/
-        └── [...nextauth]/   #   → /api/auth/*
+    ├── auth/
+    │   ├── login/       #   → /api/auth/login
+    │   ├── refresh/     #   → /api/auth/refresh
+    │   └── logout/      #   → /api/auth/logout
+    └── proxy/
+        └── [...path]/   #   → /api/proxy/*
 ```
 
 - `(app)/` is a route group — the parentheses mean it doesn't add to the URL path
@@ -184,11 +190,11 @@ app/
 // Default = Server Component (no "use client")
 // Good for: data fetching, static content, SEO
 
-// app/chat/page.jsx
-import { auth } from "@/auth";
+// app/(app)/chat/page.jsx
+import { apiFetch } from "@/lib/api";
 
 export default async function ChatPage() {
-  const session = await auth();  // Server-side session check
+  const sessions = await apiFetch("/chat/sessions/");  // reads cookie server-side
   // ...
 }
 
@@ -210,51 +216,62 @@ export default function MessageInput() {
 ### API Routes
 
 ```jsx
-// app/api/auth/[...nextauth]/route.js
-import { handlers } from "@/auth";
+// app/api/auth/login/route.js — Login proxy
+import { NextResponse } from "next/server";
 
-export const { GET, POST } = handlers;
+export async function POST(request) {
+  const { email, password } = await request.json();
+  // Call Django, set httpOnly cookies, return user data
+}
+
+// app/api/proxy/[...path]/route.js — Generic API proxy
+export async function GET(request, { params }) {
+  // Read access_token cookie, inject Bearer header, forward to Django
+}
 ```
 
 ---
 
-## Authentication — NextAuth.js v5
+## Authentication — BFF Proxy Pattern
 
-Auth.js v5 provides server-side session management, eliminating localStorage JWT tokens (XSS vulnerability).
+The frontend uses a **Backend-for-Frontend (BFF)** proxy pattern for authentication. No third-party auth library sits between Next.js and Django. Django remains the sole identity authority.
 
 ### Architecture
 
 ```
-Browser → middleware.js (route guard)
-         → auth.js (session config)
-         → Django backend /api/v1/auth/login/ (Credentials verification)
-         → JWT session cookie (httpOnly, secure)
+Browser → middleware.js (cookie existence check)
+         → Route Handlers (login, refresh, logout, proxy)
+         → Django backend /api/v1/auth/* (token generation)
+         → httpOnly cookies (access_token, refresh_token)
 ```
 
 ### Key Files (to be created)
 
 | File | Purpose |
 |------|---------|
-| `auth.js` | Auth.js configuration — Credentials provider, JWT callbacks, Django backend adapter |
-| `middleware.js` | Route protection — redirect unauthenticated users to `/login` |
-| `app/api/auth/[...nextauth]/route.js` | Catch-all route handler for auth endpoints |
-| `lib/auth-client.js` | Client-side helpers (`signIn`, `signOut`, `useSession`) |
+| `middleware.js` | Route protection — redirect if no access_token cookie |
+| `app/api/auth/login/route.js` | Login proxy — calls Django, sets httpOnly cookies |
+| `app/api/auth/refresh/route.js` | Refresh proxy — reads refresh cookie, calls Django, updates cookies |
+| `app/api/auth/logout/route.js` | Logout proxy — blacklists token on Django, clears cookies |
+| `app/api/proxy/[...path]/route.js` | Generic API proxy — reads cookie, injects Bearer header, forwards to Django |
+| `lib/cookies.js` | Cookie names, max-ages, options — single source of truth |
 
 ### Integration with Django
 
 ```
-NextAuth Credentials Provider
-    │
-    ▼ authorize(credentials)
-    │
-    ▼ POST http://localhost:8000/api/v1/auth/login/
-    │   { email, password }
-    │
-    ▼ Django returns { access, refresh }
-    │
-    ▼ JWT callback stores tokens in session
-    │
-    ▼ Session cookie set (httpOnly)
+Login Flow:
+    Browser → POST /api/auth/login (email, password)
+            → Next.js Route Handler
+            → POST Django /api/v1/auth/token/
+            → Django returns { access, refresh }
+            → Next.js sets httpOnly cookies (NO tokens in response body)
+
+Authenticated Request:
+    Browser → GET /api/proxy/chat/sessions/
+            → Next.js reads access_token cookie
+            → Injects Authorization: Bearer <token>
+            → Forwards to Django /api/v1/chat/sessions/
+            → Returns response to browser
 ```
 
 > Full implementation playbook: `docs/AUTHJS_INTEGRATION.md`
@@ -266,22 +283,35 @@ NextAuth Credentials Provider
 ### Architecture
 
 ```
-Component → lib/api.js → Django Backend /api/v1/
+Client Component → /api/proxy/... → Next.js Route Handler → Django Backend /api/v1/...
+Server Component → lib/api.js → Django Backend /api/v1/... (reads cookies directly)
 ```
 
-### Pattern
+### Pattern — Client Components
 
 ```jsx
-// lib/api.js
-const API_URL = process.env.NEXT_PUBLIC_API_URL;
+// Client components call the proxy — no token handling needed
+const res = await fetch("/api/proxy/chat/sessions/");
+const sessions = await res.json();
+```
+
+### Pattern — Server Components
+
+```jsx
+// lib/api.js — reads access_token cookie, injects Bearer header
+import { cookies } from "next/headers";
+
+const API_URL = process.env.INTERNAL_API_URL;
 
 export async function apiFetch(path, options = {}) {
-  const session = await auth();  // Server-side
+  const cookieStore = await cookies();
+  const accessToken = cookieStore.get("access_token")?.value;
+
   const res = await fetch(`${API_URL}${path}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${session.accessToken}`,
+      Authorization: `Bearer ${accessToken}`,
       ...options.headers,
     },
   });
@@ -289,9 +319,6 @@ export async function apiFetch(path, options = {}) {
   if (!res.ok) throw new ApiError(res.status, await res.json());
   return res.json();
 }
-
-// Usage in server component:
-const sessions = await apiFetch("/chat/sessions/");
 ```
 
 ---
@@ -358,13 +385,9 @@ describe("ChatMessage", () => {
 
 ```jsx
 // app/(app)/my-feature/page.jsx
-import { auth } from "@/auth";
 import { apiFetch } from "@/lib/api";
 
 export default async function MyFeaturePage() {
-  const session = await auth();
-  if (!session) return null;
-
   const data = await apiFetch("/my-feature/");
 
   return (
