@@ -296,8 +296,8 @@ REST_FRAMEWORK = {
         "rest_framework.filters.OrderingFilter",
     ],
     "DEFAULT_AUTHENTICATION_CLASSES": [
-        # "accounts.services.CustomJWTCookieAuthentication",
         "rest_framework_simplejwt.authentication.JWTAuthentication",
+        "accounts.services.auth.CustomJWTCookieAuthentication",
         "rest_framework.authentication.SessionAuthentication",
         "rest_framework.authentication.BasicAuthentication",
     ],
@@ -325,36 +325,23 @@ SESSION_EXPIRE_AT_BROWSER_CLOSE = False
 
 SIMPLE_JWT = {
     # Token lifetimes
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),
-    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
-    # Token rotation settings
-    # Disable token rotation to prevent blacklisting issues
-    "ROTATE_REFRESH_TOKENS": True,  # Enable rotation
-    "BLACKLIST_AFTER_ROTATION": True,  # Enable blacklisting
-    "UPDATE_LAST_LOGIN": False,  # Reduce DB hits
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=5),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
+    # Token rotation
+    "ROTATE_REFRESH_TOKENS": True,
+    "BLACKLIST_AFTER_ROTATION": False,  # Avoid race condition; logout blacklists explicitly
+    "UPDATE_LAST_LOGIN": False,
+    # Auth
     "AUTH_HEADER_TYPES": ("Bearer",),
     "AUTH_TOKEN_CLASSES": ("rest_framework_simplejwt.tokens.AccessToken",),
-    # Signing settings
-    # 'ALGORITHM': 'HS256',
-    # 'SIGNING_KEY': SECRET_KEY,
-    # 'VERIFYING_KEY': None,
-    # Token validation settings
-    # 'AUDIENCE': None,
-    # 'ISSUER': None,
-    # Header settings
-    # 'AUTH_HEADER_NAME': 'HTTP_AUTHORIZATION',
-    # User settings
-    # 'USER_ID_FIELD': 'id',
-    # 'USER_ID_CLAIM': 'user_id',
-    # Token classes and claims
-    # 'TOKEN_TYPE_CLAIM': 'token_type',
-    # 'JTI_CLAIM': 'jti',
-    # Additional security settings
-    # 'TOKEN_USER_CLASS': 'django.contrib.auth.models.User',
-    # Use them if required: sliding token settings
-    # 'SLIDING_TOKEN_REFRESH_EXP_CLAIM': 'refresh_exp',
-    # 'SLIDING_TOKEN_LIFETIME': timedelta(minutes=30),
-    # 'SLIDING_TOKEN_REFRESH_LIFETIME': timedelta(days=1),
+    # Cookie settings (for direct API access — Swagger, testing)
+    "AUTH_COOKIE": "access_token",
+    "AUTH_COOKIE_REFRESH": "refresh_token",
+    "AUTH_COOKIE_SECURE": False,  # True in production (HTTPS)
+    "AUTH_COOKIE_HTTP_ONLY": True,
+    "AUTH_COOKIE_SAMESITE": "Lax",
+    "AUTH_COOKIE_ACCESS_MAX_AGE": 300,  # 5 min
+    "AUTH_COOKIE_REFRESH_MAX_AGE": 86400,  # 1 day
 }
 
 # Frontend URL for email links
