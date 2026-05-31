@@ -25,6 +25,13 @@ class ErrorResponseSerializer(serializers.Serializer):
     errors = serializers.DictField(required=False, help_text="Field-level errors.")
 
 
+class MessageResponseSerializer(serializers.Serializer):
+    """Generic message response."""
+
+    message = serializers.CharField()
+    status = serializers.CharField(default="success")
+
+
 # ---------------------------------------------------------------------------
 #  Auth — Login
 # ---------------------------------------------------------------------------
