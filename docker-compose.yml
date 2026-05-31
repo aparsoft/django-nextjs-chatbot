@@ -1,16 +1,43 @@
+# ==============================================================================
+# Aparsoft AI Chatbot - Local Development Docker Compose
+# ==============================================================================
+# Usage:
+#   docker-compose up --build          # Start everything
+#   docker-compose up db redis         # Start only infrastructure
+#   docker-compose down               # Stop everything
+#   docker-compose down -v            # Stop + delete volumes (fresh start)
+#
+# Ports (host:container):
+#   PostgreSQL + pgvector : 5433:5432
+#   Redis                 : 6380:6379
+#   Django Backend        : 8000:8000
+#   Next.js Frontend      : 3000:3000
+#
+# Databases created automatically:
+#   chatbot_db          - Django models (sessions, users, preferences, etc.)
+#   langchain_pgvector  - pgvector embeddings for RAG
+#   langchain_history   - LangGraph checkpoint / conversation history
+# ==============================================================================
+
 services:
-  # PostgreSQL Database
+  # ---------------------------------------------------------------------------
+  # PostgreSQL 17 + pgvector — the single Postgres instance for everything
+  # ---------------------------------------------------------------------------
   db:
-    image: postgres:17-alpine
+    image: pgvector/pgvector:pg17
     container_name: chatbot-db
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./docker/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh
     environment:
       POSTGRES_DB: chatbot_db
       POSTGRES_USER: chatbot_user
       POSTGRES_PASSWORD: chatbot_pass
+      # Extra databases created by init-db.sh
+      PGVECTOR_DB: langchain_pgvector
+      HISTORY_DB: langchain_history
     ports:
-      - "5433:5432"  # Host:Container - avoiding conflict with local PostgreSQL
+      - "5433:5432"
     networks:
       - chatbot-network
     healthcheck:
@@ -18,8 +45,30 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
+  # ---------------------------------------------------------------------------
+  # Redis 7 — cache, Celery broker, Django Channels layer
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: chatbot-redis
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - chatbot-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
   # Django Backend
+  # ---------------------------------------------------------------------------
   backend:
     build:
       context: ./backend
@@ -36,22 +85,30 @@ services:
       - DEBUG=1
       - DJANGO_SETTINGS_MODULE=config.settings.development
       - SECRET_KEY=dev-secret-key-change-in-production
-      - DATABASE_URL=postgresql://chatbot_user:chatbot_pass@db:5432/chatbot_db
-      - PGVECTOR_CONNECTION_STRING=postgresql://chatbot_user:chatbot_pass@db:5432/chatbot_db
-      - PG_CHECKPOINT_URI=postgresql://chatbot_user:chatbot_pass@db:5432/chatbot_db
+      # Django DB (internal docker network — host=db, port=5432)
       - DB_NAME=chatbot_db
       - DB_USER=chatbot_user
       - DB_PASSWORD=chatbot_pass
       - DB_HOST=db
       - DB_PORT=5432
+      - DATABASE_URL=postgresql://chatbot_user:chatbot_pass@db:5432/chatbot_db
+      # pgvector (same Postgres, different database)
+      - PGVECTOR_CONNECTION_STRING=postgresql+psycopg://chatbot_user:chatbot_pass@db:5432/langchain_pgvector
+      # LangGraph checkpointer (same Postgres, different database)
+      - PG_CHECKPOINT_URI=postgresql://chatbot_user:chatbot_pass@db:5432/langchain_history?sslmode=disable
+      # Redis (internal docker network)
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      # CORS
       - ALLOWED_HOSTS=localhost,127.0.0.1,backend
       - CORS_ALLOWED_ORIGINS=http://localhost:3000,http://frontend:3000
+      # API Keys (passed from host env or fallback)
       - OPENAI_API_KEY=${OPENAI_API_KEY:-your-openai-api-key-here}
       - TAVILY_API_KEY=${TAVILY_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - REDIS_URL=redis://redis:6379/0
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - HUGGINGFACEHUB_API_TOKEN=${HUGGINGFACEHUB_API_TOKEN:-}
+      - DEEPGRAM_API_KEY=${DEEPGRAM_API_KEY:-}
     depends_on:
       db:
         condition: service_healthy
@@ -75,7 +132,9 @@ services:
           path: ./backend/requirements.txt
           target: /app/requirements.txt
 
+  # ---------------------------------------------------------------------------
   # Next.js Frontend
+  # ---------------------------------------------------------------------------
   frontend:
     build:
       context: ./frontend
@@ -108,23 +167,9 @@ services:
           path: ./frontend/package.json
           target: /app/package.json
 
-  # Redis Cache
-  redis:
-    image: redis:7-alpine
-    container_name: chatbot-redis
-    ports:
-      - "6380:6379"  # Host:Container - avoiding conflict with local Redis
-    volumes:
-      - redis_data:/data
-    networks:
-      - chatbot-network
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
+  # ---------------------------------------------------------------------------
   # Celery Worker
+  # ---------------------------------------------------------------------------
   celery:
     build:
       context: ./backend
@@ -138,20 +183,21 @@ services:
       - DEBUG=1
       - DJANGO_SETTINGS_MODULE=config.settings.development
       - SECRET_KEY=dev-secret-key-change-in-production
-      - DATABASE_URL=postgresql://chatbot_user:chatbot_pass@db:5432/chatbot_db
-      - PGVECTOR_CONNECTION_STRING=postgresql://chatbot_user:chatbot_pass@db:5432/chatbot_db
-      - PG_CHECKPOINT_URI=postgresql://chatbot_user:chatbot_pass@db:5432/chatbot_db
       - DB_NAME=chatbot_db
       - DB_USER=chatbot_user
       - DB_PASSWORD=chatbot_pass
       - DB_HOST=db
       - DB_PORT=5432
+      - DATABASE_URL=postgresql://chatbot_user:chatbot_pass@db:5432/chatbot_db
+      - PGVECTOR_CONNECTION_STRING=postgresql+psycopg://chatbot_user:chatbot_pass@db:5432/langchain_pgvector
+      - PG_CHECKPOINT_URI=postgresql://chatbot_user:chatbot_pass@db:5432/langchain_history?sslmode=disable
       - REDIS_URL=redis://redis:6379/0
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
       - OPENAI_API_KEY=${OPENAI_API_KEY:-your-openai-api-key-here}
       - TAVILY_API_KEY=${TAVILY_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - HUGGINGFACEHUB_API_TOKEN=${HUGGINGFACEHUB_API_TOKEN:-}
     depends_on:
       db:
         condition: service_healthy
@@ -174,7 +220,9 @@ services:
             - .pytest_cache/
             - .git/
 
+  # ---------------------------------------------------------------------------
   # Celery Beat (Scheduler)
+  # ---------------------------------------------------------------------------
   celery-beat:
     build:
       context: ./backend
@@ -188,20 +236,21 @@ services:
       - DEBUG=1
       - DJANGO_SETTINGS_MODULE=config.settings.development
       - SECRET_KEY=dev-secret-key-change-in-production
-      - DATABASE_URL=postgresql://chatbot_user:chatbot_pass@db:5432/chatbot_db
-      - PGVECTOR_CONNECTION_STRING=postgresql://chatbot_user:chatbot_pass@db:5432/chatbot_db
-      - PG_CHECKPOINT_URI=postgresql://chatbot_user:chatbot_pass@db:5432/chatbot_db
       - DB_NAME=chatbot_db
       - DB_USER=chatbot_user
       - DB_PASSWORD=chatbot_pass
       - DB_HOST=db
       - DB_PORT=5432
+      - DATABASE_URL=postgresql://chatbot_user:chatbot_pass@db:5432/chatbot_db
+      - PGVECTOR_CONNECTION_STRING=postgresql+psycopg://chatbot_user:chatbot_pass@db:5432/langchain_pgvector
+      - PG_CHECKPOINT_URI=postgresql://chatbot_user:chatbot_pass@db:5432/langchain_history?sslmode=disable
       - REDIS_URL=redis://redis:6379/0
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
       - OPENAI_API_KEY=${OPENAI_API_KEY:-your-openai-api-key-here}
       - TAVILY_API_KEY=${TAVILY_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - HUGGINGFACEHUB_API_TOKEN=${HUGGINGFACEHUB_API_TOKEN:-}
     depends_on:
       db:
         condition: service_healthy
