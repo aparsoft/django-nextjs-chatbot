@@ -68,48 +68,6 @@ sudo usermod -aG docker $USER
 newgrp docker
 ```
 
-### Step 9: Test Without Sudo
-
-```bash
-docker run hello-world
-```
-
-### Step 10: Auto-Start Docker on WSL Boot
-
-#### Option 1: Create a startup script
-
-Edit your `.bashrc` or `.zshrc`:
-
-```bash
-nano ~/.bashrc
-```
-
-Add this at the end:
-
-```bash
-# Start Docker daemon automatically
-if ! service docker status > /dev/null 2>&1; then
-    sudo service docker start > /dev/null 2>&1
-fi
-```
-
-#### Option 2: Set up passwordless sudo for Docker
-
-Edit sudoers file:
-
-```bash
-sudo visudo
-```
-
-Add this line at the end:
-
-```
-%docker ALL=(ALL) NOPASSWD: /usr/sbin/service docker start
-```
-
-### Step 11: Verify Docker Compose
-
-```bash
 docker compose version
 ```
 
@@ -117,122 +75,7 @@ You should see something like: Docker Compose version v2.x.x
 
 ---
 
-## 🚀 Quick Test with Your Project
-
-```bash
-# Navigate to your project
-cd /your-project/django-nextjs-chatbot
-
-# Test Docker
-docker --version
-docker compose version
-
-# Build and run your project
-docker compose up --build
-```
-
----
-
-## 📝 Common WSL2 Docker Commands
-
-**Start Docker:**
-```bash
-sudo service docker start
-```
-
-**Stop Docker:**
-```bash
-sudo service docker stop
-```
-
-**Check Docker Status:**
-```bash
-sudo service docker status
-```
-
-**Restart Docker:**
-```bash
-sudo service docker restart
-```
-
----
-
-## ⚠️ Troubleshooting
-
-### Issue: "Cannot connect to Docker daemon"
-
-```bash
-sudo service docker start
-```
-
-### Issue: Permission Denied
-
-```bash
-# Make sure you're in docker group
-groups $USER
-
-# If docker is not listed, add yourself again
-sudo usermod -aG docker $USER
-newgrp docker
-```
-
-### Issue: WSL2 Memory Limits
-
-Create/edit `.wslconfig` in Windows:
-
-```ini
-# In Windows: C:\Users\YourUsername\.wslconfig
-[wsl2]
-memory=8GB
-processors=4
-swap=2GB
-```
-
-Then restart WSL from PowerShell (Windows):
-
-```powershell
-wsl --shutdown
-```
-
----
-
-## ✅ Verification Checklist
-
-Run these to confirm everything works:
-
-```bash
-# Check Docker version
-docker --version
-
-# Check Docker Compose
-docker compose version
-
-# Check Docker service
-sudo service docker status
-
-# Run test container
-docker run hello-world
-
-# Check if you can run without sudo
-docker ps
-```
-
----
-
-All set? Let me know if you hit any issues, and I'll help you troubleshoot! 🎯
-
-
-# Docker Setup Guide
-
-This guide will help you run the Django + Next.js chatbot using Docker.
-
-## Prerequisites
-
-- Docker Desktop installed
-- Docker Compose installed (comes with Docker Desktop)
-- OpenAI API key
-
-## Quick Start
+## 2️⃣ Quick Start: Run the Project
 
 ### 1. Set Up Environment Variables
 
@@ -257,10 +100,9 @@ echo "OPENAI_API_KEY=your-actual-openai-key-here" > .env
 ```
 
 ### 2. Build and Run
-
 ```bash
 # From project root
-docker-compose up --build
+docker compose up --build
 ```
 
 This will:
@@ -269,149 +111,146 @@ This will:
 - Build and run Next.js frontend on `http://localhost:3000`
 
 ### 3. Run Migrations (First Time Only)
-
-In a new terminal:
 ```bash
-docker-compose exec backend python manage.py migrate
+docker compose exec backend python manage.py migrate
 ```
 
 ### 4. Create Superuser (Optional)
-
 ```bash
-docker-compose exec backend python manage.py createsuperuser
+docker compose exec backend python manage.py createsuperuser
 ```
 
 ### 5. Access the Application
-
 - **Frontend:** http://localhost:3000
 - **Backend API:** http://localhost:8000
 - **Django Admin:** http://localhost:8000/admin
 
-## Common Commands
+---
 
-### Start Services
-```bash
-docker-compose up
-```
+## 3️⃣ Common Docker Commands
 
-### Start in Background
-```bash
-docker-compose up -d
-```
-
-### Stop Services
-```bash
-docker-compose down
-```
-
-### View Logs
-```bash
-# All services
-docker-compose logs -f
-
-# Specific service
-docker-compose logs -f backend
-docker-compose logs -f frontend
-```
-
-### Rebuild After Changes
-```bash
-docker-compose up --build
-```
-
-### Run Django Commands
-```bash
-# Migrations
-docker-compose exec backend python manage.py migrate
-
-# Create app
-docker-compose exec backend python manage.py startapp myapp
-
-# Shell
-docker-compose exec backend python manage.py shell
-
-# Collect static files
-docker-compose exec backend python manage.py collectstatic
-```
-
-### Run Frontend Commands
-```bash
-# Install new package
-docker-compose exec frontend npm install package-name
-
-# Run npm command
-docker-compose exec frontend npm run build
-```
-
-### Database Access
-```bash
-# Access PostgreSQL
-docker-compose exec db psql -U chatbot_user -d chatbot_db
-```
-
-### Clean Up Everything
-```bash
-# Stop and remove containers, networks
-docker-compose down
-
-# Also remove volumes (WARNING: deletes database data!)
-docker-compose down -v
-```
-
-## Troubleshooting
-
-### Port Already in Use
-```bash
-# Change ports in docker-compose.yml
-# For example, change "3000:3000" to "3001:3000"
-```
-
-### Frontend Hot Reload Not Working
-```bash
-# Uncomment WATCHPACK_POLLING in docker-compose.yml
-# Or add to frontend/.env.local:
-WATCHPACK_POLLING=true
-```
-
-### Database Connection Issues
-```bash
-# Wait for database to be ready
-# The backend service has a healthcheck that waits for PostgreSQL
-# If issues persist, try:
-docker-compose restart backend
-```
-
-### Permission Issues (Linux/Mac)
-```bash
-# Fix file permissions
-sudo chown -R $USER:$USER .
-```
-
-### Clear Build Cache
-```bash
-docker-compose build --no-cache
-```
-
-## Development Workflow
-
-1. **Edit code** - Changes auto-reload for both Django and Next.js
-2. **Backend changes** - Auto-reload with Django's runserver
-3. **Frontend changes** - Hot Module Replacement (HMR) with Next.js
-4. **New dependencies:**
-   - Backend: Add to `requirements.txt`, then `docker-compose up --build`
-   - Frontend: `docker-compose exec frontend npm install`
-
-## Production Deployment
-
-For production, you'll need:
-- Separate Dockerfile.prod files
-- docker-compose.prod.yml
-- Proper SECRET_KEY, DEBUG=0
-- Static file serving via Nginx
-- Gunicorn for Django
-
-(These will be covered in our YouTube tutorial series!)
+| Task | Command |
+|------|---------|
+| Start all services | `docker compose up` |
+| Start in background | `docker compose up -d` |
+| Stop all services | `docker compose down` |
+| View logs | `docker compose logs -f` |
+| Rebuild after changes | `docker compose up --build` |
+| Run Django migrations | `docker compose exec backend python manage.py migrate` |
+| Access DB | `docker compose exec db psql -U chatbot_user -d chatbot_db` |
+| Install frontend package | `docker compose exec frontend npm install <package>` |
+| Run frontend build | `docker compose exec frontend npm run build` |
 
 ---
 
-**Need help?** Check out our [YouTube tutorials](https://youtube.com/@aparsoft-ai) or ask in GitHub Discussions!
+## 4️⃣ Best Practices for 2026
+
+### Multi-Stage Dockerfiles
+- Use multi-stage builds for both backend and frontend to keep images small and secure.
+
+### .dockerignore Example
+Create a `.dockerignore` in both backend and frontend:
+```
+# .dockerignore
+node_modules
+.next
+*.log
+.env
+__pycache__/
+*.pyc
+.git
+Dockerfile*
+```bash
+README.md
+docker-compose up --build
+```
+
+### Security Checklist
+- Use non-root users in containers
+- Keep images updated regularly
+- Scan images for vulnerabilities
+- Use secrets management for sensitive data
+- Enable SSL/TLS (Let’s Encrypt for production)
+- Never commit `.env` files to version control
+- Use environment variables for config
+
+### Health Checks
+- Both backend and db services should have healthchecks in `docker-compose.yml`.
+
+### Backups
+- Use a cron job or script to backup your database and media files regularly.
+
+Example (PostgreSQL):
+```bash
+docker compose exec db pg_dump -U chatbot_user chatbot_db | gzip > ./backups/db_$(date +%Y%m%d_%H%M%S).sql.gz
+```
+
+---
+
+## 5️⃣ Development Workflow
+
+1. **Edit code** – Changes auto-reload for both Django and Next.js
+2. **Backend changes** – Auto-reload with Django’s runserver
+3. **Frontend changes** – Hot Module Replacement (HMR) with Next.js
+4. **New dependencies:**
+    - Backend: Add to `requirements.txt`, then `docker compose up --build`
+    - Frontend: `docker compose exec frontend npm install <package>`
+
+---
+
+## 6️⃣ Production Deployment (Overview)
+
+- Use separate `Dockerfile.prod` and `docker-compose.prod.yml`
+- Set `DEBUG=0` and a strong `SECRET_KEY`
+- Serve static files with Nginx
+- Use Gunicorn for Django
+- Use a managed database for reliability
+- Set up monitoring and logging
+
+---
+
+## 7️⃣ FAQ & Troubleshooting
+
+**Q: Docker says port is already in use?**
+A: Change the port mapping in `docker-compose.yml` (e.g., `3000:3000` → `3001:3000`).
+
+**Q: Frontend hot reload not working?**
+A: Uncomment `WATCHPACK_POLLING` in `docker-compose.yml` or add `WATCHPACK_POLLING=true` to `frontend/.env.local`.
+
+**Q: Database connection issues?**
+A: Wait for the database to be ready. If issues persist, try `docker compose restart backend`.
+
+**Q: Permission denied errors?**
+A: Fix file permissions: `sudo chown -R $USER:$USER .`
+
+**Q: How do I clear Docker build cache?**
+A: `docker compose build --no-cache`
+
+**Q: WSL2 memory limits?**
+A: Edit `.wslconfig` in Windows user folder:
+```ini
+[wsl2]
+```
+processors=4
+swap=2GB
+```
+Then restart WSL: `wsl --shutdown`
+
+---
+
+## ✅ Final Checklist
+
+- [ ] Docker and Docker Compose installed
+- [ ] `.env` files set up for backend, frontend, and root
+- [ ] `docker compose up --build` runs without errors
+- [ ] Can access frontend and backend in browser
+
+---
+
+**Need help?**
+- Check out our [YouTube tutorials](https://youtube.com/@aparsoft-ai)
+- Ask in GitHub Discussions
+- Or reach out to a team member!
+
+---
+
