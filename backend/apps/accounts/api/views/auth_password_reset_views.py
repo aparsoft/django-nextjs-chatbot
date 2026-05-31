@@ -20,7 +20,7 @@ from decouple import config
 
 from drf_spectacular.utils import extend_schema, extend_schema_view
 
-from ..serializers.response_serializers import ErrorResponseSerializer
+from ..serializers.response_serializers import ErrorResponseSerializer, MessageResponseSerializer
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -47,11 +47,6 @@ class PasswordChangeRequestSerializer(sz.Serializer):
 class EmailVerifyQuerySerializer(sz.Serializer):
     uid = sz.CharField(required=False, help_text="Base64-encoded user ID.")
     token = sz.CharField(required=False, help_text="Email verification token.")
-
-
-class MessageResponseSerializer(sz.Serializer):
-    message = sz.CharField()
-    status = sz.CharField()
 
 
 class TokenValidationResponseSerializer(sz.Serializer):
