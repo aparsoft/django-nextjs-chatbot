@@ -13,9 +13,12 @@ from .auth_serializers import (
 # CustomUser serializers
 from .custom_user_serializers import (
     CustomUserSerializer,
-    CustomUserMinimalSerializer,
+    CustomUserListSerializer,
+    CustomUserCreateSerializer,
+    CustomUserUpdateSerializer,
     UserContactSerializer,
-    UserContactMinimalSerializer,
+    UserContactCreateSerializer,
+    UserContactUpdateSerializer,
 )
 
 __all__ = [
@@ -27,7 +30,11 @@ __all__ = [
     "PasswordChangeSerializer",
     # CustomUser serializers
     "CustomUserSerializer",
-    "CustomUserMinimalSerializer",
+    "CustomUserListSerializer",
+    "CustomUserCreateSerializer",
+    "CustomUserUpdateSerializer",
+    # UserContact serializers
     "UserContactSerializer",
-    "UserContactMinimalSerializer",
+    "UserContactCreateSerializer",
+    "UserContactUpdateSerializer",
 ]
