@@ -2,7 +2,7 @@
 Vector Storage Service
 
 Handles PGVector operations for document embeddings and semantic search (RAG).
-Implements October 2025 best practices with proper collection and metadata management.
+Uses the modern ``langchain_postgres`` PGEngine + PGVectorStore API.
 
 Usage:
     from chatbot.services import VectorStorageService
@@ -24,79 +24,131 @@ Usage:
 
 from typing import List, Dict, Any, Optional
 from uuid import UUID
+import threading
 
 from django.conf import settings
-from langchain_postgres import PGVector
+from langchain_postgres import PGEngine, PGVectorStore
 from langchain_openai import OpenAIEmbeddings
 from langchain_core.documents import Document
 
 from ..models import UserDocument
 from accounts.models import CustomUser
 
+# text-embedding-3-small produces 1536-dimensional vectors
+EMBEDDING_DIMENSION = 1536
+
 
 class VectorStorageService:
-    """Service for managing vector embeddings and semantic search."""
+    """Service for managing vector embeddings and semantic search via PGEngine + PGVectorStore."""
 
-    @staticmethod
-    def _get_vector_store(
-        collection_name: str, embeddings: Optional[Any] = None
-    ) -> PGVector:
+    # Singleton engine — shared across all requests in a process
+    _engine: Optional[PGEngine] = None
+    _engine_lock = threading.Lock()
+
+    # ------------------------------------------------------------------ #
+    #  Internal helpers                                                    #
+    # ------------------------------------------------------------------ #
+
+    @classmethod
+    def _get_engine(cls) -> PGEngine:
         """
-        Get PGVector store instance for a collection.
+        Get or create the singleton PGEngine instance.
 
-        Args:
-            collection_name: Name of the collection
-            embeddings: Embedding model (defaults to OpenAI)
+        PGEngine manages the SQLAlchemy connection pool. Reusing a single
+        instance avoids opening a new pool on every request.
 
         Returns:
-            Configured PGVector instance
+            PGEngine connected to ``settings.PGVECTOR_CONNECTION_STRING``
         """
-        embeddings = embeddings or OpenAIEmbeddings(model="text-embedding-3-small")
+        if cls._engine is None:
+            with cls._engine_lock:
+                # Double-checked locking
+                if cls._engine is None:
+                    cls._engine = PGEngine.from_connection_string(
+                        url=settings.PGVECTOR_CONNECTION_STRING,
+                    )
+        return cls._engine
 
-        vector_store = PGVector(
-            embeddings=embeddings,
-            collection_name=collection_name,
-            connection=settings.PGVECTOR_CONNECTION_STRING,
-            use_jsonb=True,
+    @classmethod
+    def _get_embedding_model(cls) -> OpenAIEmbeddings:
+        """Return the default embedding model (text-embedding-3-small)."""
+        return OpenAIEmbeddings(model="text-embedding-3-small")
+
+    @classmethod
+    def _get_vector_store(
+        cls,
+        table_name: str,
+        embeddings: Optional[Any] = None,
+    ) -> PGVectorStore:
+        """
+        Create a PGVectorStore backed by *table_name*.
+
+        The table is auto-created on first use via ``init_vectorstore_table``
+        (idempotent — safe to call every time).
+
+        Args:
+            table_name: PostgreSQL table name for the collection.
+            embeddings: Embedding model override (default: text-embedding-3-small).
+
+        Returns:
+            A ready-to-use PGVectorStore instance.
+        """
+        engine = cls._get_engine()
+        embedding_model = embeddings or cls._get_embedding_model()
+
+        # Ensure the table exists (idempotent CREATE TABLE IF NOT EXISTS)
+        engine.init_vectorstore_table(
+            table_name=table_name,
+            vector_size=EMBEDDING_DIMENSION,
         )
 
-        return vector_store
+        return PGVectorStore.create_sync(
+            engine=engine,
+            table_name=table_name,
+            embedding_service=embedding_model,
+        )
+
+    # ------------------------------------------------------------------ #
+    #  Collection / table naming helpers                                   #
+    # ------------------------------------------------------------------ #
 
     @staticmethod
     def create_user_collection_name(user: CustomUser) -> str:
         """
-        Create standardized collection name for user.
+        Standardised table name for a user's documents.
 
         Args:
             user: The user
 
         Returns:
-            Collection name string
+            Table name string
 
         Example:
-            collection = VectorStorageService.create_user_collection_name(user)
-            # Returns: "user_123_documents"
+            >>> VectorStorageService.create_user_collection_name(user)
+            'user_123_documents'
         """
         return f"user_{user.id}_documents"
 
     @staticmethod
     def create_session_collection_name(session_id: UUID) -> str:
         """
-        Create collection name for a specific session.
+        Standardised table name for a session's context.
 
         Args:
             session_id: Chat session ID
 
         Returns:
-            Collection name string
+            Table name string
 
         Example:
-            collection = VectorStorageService.create_session_collection_name(
-                session_id=session.id
-            )
-            # Returns: "session_abc123_context"
+            >>> VectorStorageService.create_session_collection_name(session.id)
+            'session_abc123_context'
         """
         return f"session_{session_id}_context"
+
+    # ------------------------------------------------------------------ #
+    #  Write operations                                                    #
+    # ------------------------------------------------------------------ #
 
     @staticmethod
     def store_document_embeddings(
@@ -107,52 +159,42 @@ class VectorStorageService:
         embeddings: Optional[Any] = None,
     ) -> List[str]:
         """
-        Store document chunks as embeddings.
+        Store document chunks as vector embeddings.
 
         Args:
-            document: UserDocument instance
-            chunks: List of text chunks to embed
-            user: User who owns the document
-            collection_name: Custom collection name (optional)
-            embeddings: Custom embedding model (optional)
+            document: UserDocument instance.
+            chunks: Text chunks to embed.
+            user: Owning user.
+            collection_name: Custom table name (default: per-user table).
+            embeddings: Custom embedding model override.
 
         Returns:
-            List of vector IDs
+            List of stored vector IDs.
 
         Example:
-            from langchain.text_splitter import RecursiveCharacterTextSplitter
-
-            splitter = RecursiveCharacterTextSplitter(chunk_size=1000)
-            chunks = splitter.split_text(document_text)
-
             vector_ids = VectorStorageService.store_document_embeddings(
                 document=doc,
-                chunks=chunks,
-                user=request.user
+                chunks=text_chunks,
+                user=request.user,
             )
         """
-        # Use user collection if not specified
-        collection_name = (
+        table_name = (
             collection_name or VectorStorageService.create_user_collection_name(user)
         )
 
-        # Get vector store
         vector_store = VectorStorageService._get_vector_store(
-            collection_name=collection_name, embeddings=embeddings
+            table_name=table_name, embeddings=embeddings,
         )
 
-        # Get metadata for all chunks
         metadata = document.get_vector_metadata()
 
-        # Store chunks with metadata
         vector_ids = vector_store.add_texts(
             texts=chunks,
-            metadatas=[metadata] * len(chunks),  # Same metadata for all chunks
+            metadatas=[metadata] * len(chunks),
         )
 
-        # Update document record
         document.mark_processing_completed(
-            collection_name=collection_name,
+            collection_name=table_name,
             vector_ids=vector_ids,
             chunk_count=len(chunks),
             collection_metadata={"user_id": str(user.id)},
@@ -160,6 +202,63 @@ class VectorStorageService:
         )
 
         return vector_ids
+
+    @staticmethod
+    def reindex_document(
+        document: UserDocument,
+        new_chunks: List[str],
+        user: CustomUser,
+    ) -> List[str]:
+        """
+        Reindex a document (delete old embeddings, then store new ones).
+
+        Args:
+            document: UserDocument to reindex.
+            new_chunks: New text chunks.
+            user: Document owner.
+
+        Returns:
+            New vector IDs.
+
+        Example:
+            new_chunks = splitter.split_text(text)
+            VectorStorageService.reindex_document(doc, new_chunks, user)
+        """
+        VectorStorageService.delete_document_embeddings(document)
+        return VectorStorageService.store_document_embeddings(
+            document=document, chunks=new_chunks, user=user,
+        )
+
+    @staticmethod
+    def delete_document_embeddings(document: UserDocument) -> None:
+        """
+        Delete all embeddings for a document.
+
+        Args:
+            document: UserDocument whose embeddings should be removed.
+
+        Example:
+            VectorStorageService.delete_document_embeddings(doc)
+        """
+        if not document.has_embeddings:
+            return
+
+        vector_store = VectorStorageService._get_vector_store(
+            document.vector_collection_name,
+        )
+
+        # Batch-delete all vector IDs in one call
+        vector_store.delete(ids=document.vector_store_ids)
+
+        # Clear metadata on the model
+        document.vector_collection_name = ""
+        document.vector_store_ids = []
+        document.chunk_count = 0
+        document.save()
+
+    # ------------------------------------------------------------------ #
+    #  Search operations                                                   #
+    # ------------------------------------------------------------------ #
 
     @staticmethod
     def semantic_search(
@@ -171,58 +270,41 @@ class VectorStorageService:
         embeddings: Optional[Any] = None,
     ) -> List[Document]:
         """
-        Perform semantic search on user's documents.
+        Semantic similarity search over a user's documents.
 
         Args:
-            query: Search query
-            user: User for filtering
-            k: Number of results
-            collection_name: Specific collection (optional)
-            filter_dict: Additional metadata filters (optional)
-            embeddings: Custom embedding model (optional)
+            query: Natural-language search query.
+            user: User whose documents to search.
+            k: Number of results.
+            collection_name: Specific table (default: user table).
+            filter_dict: Additional metadata filters.
+            embeddings: Custom embedding model.
 
         Returns:
-            List of Document objects with content and metadata
+            List of matching Document objects.
 
         Example:
-            # Search user's documents
             results = VectorStorageService.semantic_search(
                 query="What is machine learning?",
                 user=request.user,
-                k=5
-            )
-
-            # Search with category filter
-            results = VectorStorageService.semantic_search(
-                query="Python tutorials",
-                user=request.user,
-                k=3,
-                filter_dict={"category": {"$eq": "programming"}}
+                k=5,
             )
         """
-        # Use user collection if not specified
-        collection_name = (
+        table_name = (
             collection_name or VectorStorageService.create_user_collection_name(user)
         )
 
-        # Get vector store
         vector_store = VectorStorageService._get_vector_store(
-            collection_name=collection_name, embeddings=embeddings
+            table_name=table_name, embeddings=embeddings,
         )
 
-        # Build filter
-        base_filter = {"user_id": {"$eq": str(user.id)}}
+        # Base filter: only this user's documents
+        base_filter: Dict[str, Any] = {"user_id": {"$eq": str(user.id)}}
+        search_filter = (
+            {"$and": [base_filter, filter_dict]} if filter_dict else base_filter
+        )
 
-        if filter_dict:
-            # Combine filters
-            search_filter = {"$and": [base_filter, filter_dict]}
-        else:
-            search_filter = base_filter
-
-        # Perform search
-        results = vector_store.similarity_search(query=query, k=k, filter=search_filter)
-
-        return results
+        return vector_store.similarity_search(query=query, k=k, filter=search_filter)
 
     @staticmethod
     def semantic_search_with_scores(
@@ -236,127 +318,65 @@ class VectorStorageService:
         Semantic search with relevance scores.
 
         Args:
-            query: Search query
-            user: User for filtering
-            k: Number of results
-            collection_name: Specific collection (optional)
-            filter_dict: Additional metadata filters (optional)
+            query: Natural-language search query.
+            user: User whose documents to search.
+            k: Number of results.
+            collection_name: Specific table (default: user table).
+            filter_dict: Additional metadata filters.
 
         Returns:
-            List of (Document, score) tuples
+            List of (Document, score) tuples ordered by relevance.
 
         Example:
-            results = VectorStorageService.semantic_search_with_scores(
-                query="AI research",
-                user=request.user,
-                k=10
-            )
-
-            for doc, score in results:
-                print(f"Score: {score}, Content: {doc.page_content[:100]}")
+            for doc, score in VectorStorageService.semantic_search_with_scores(
+                query="AI research", user=request.user, k=10,
+            ):
+                print(f"Score: {score:.3f}  {doc.page_content[:100]}")
         """
-        collection_name = (
+        table_name = (
             collection_name or VectorStorageService.create_user_collection_name(user)
         )
 
-        vector_store = VectorStorageService._get_vector_store(collection_name)
+        vector_store = VectorStorageService._get_vector_store(table_name=table_name)
 
-        # Build filter
-        base_filter = {"user_id": {"$eq": str(user.id)}}
-
-        if filter_dict:
-            search_filter = {"$and": [base_filter, filter_dict]}
-        else:
-            search_filter = base_filter
-
-        results = vector_store.similarity_search_with_score(
-            query=query, k=k, filter=search_filter
+        base_filter: Dict[str, Any] = {"user_id": {"$eq": str(user.id)}}
+        search_filter = (
+            {"$and": [base_filter, filter_dict]} if filter_dict else base_filter
         )
 
-        return results
-
-    @staticmethod
-    def delete_document_embeddings(document: UserDocument) -> None:
-        """
-        Delete embeddings for a document.
-
-        Args:
-            document: UserDocument to delete embeddings for
-
-        Example:
-            VectorStorageService.delete_document_embeddings(doc)
-        """
-        if not document.has_embeddings:
-            return
-
-        vector_store = VectorStorageService._get_vector_store(
-            document.vector_collection_name
+        return vector_store.similarity_search_with_score(
+            query=query, k=k, filter=search_filter,
         )
 
-        # Delete by IDs
-        for vector_id in document.vector_store_ids:
-            vector_store.delete([vector_id])
-
-        # Clear document metadata
-        document.vector_collection_name = ""
-        document.vector_store_ids = []
-        document.chunk_count = 0
-        document.save()
-
-    @staticmethod
-    def get_collection_documents(
-        collection_name: str, user: Optional[CustomUser] = None
-    ) -> List[UserDocument]:
-        """
-        Get all documents in a collection.
-
-        Args:
-            collection_name: Collection name
-            user: Optional user filter
-
-        Returns:
-            List of UserDocument instances
-
-        Example:
-            docs = VectorStorageService.get_collection_documents(
-                collection_name="user_123_documents",
-                user=request.user
-            )
-        """
-        return UserDocument.get_documents_in_collection(
-            collection_name=collection_name, user=user
-        )
+    # ------------------------------------------------------------------ #
+    #  Formatting & stats helpers                                          #
+    # ------------------------------------------------------------------ #
 
     @staticmethod
     def format_search_results_for_context(
-        results: List[Document], max_context_length: Optional[int] = None
+        results: List[Document],
+        max_context_length: Optional[int] = None,
     ) -> str:
         """
-        Format search results into context string for LLM.
+        Format search results into a context string suitable for LLM injection.
 
         Args:
-            results: Search results
-            max_context_length: Max characters (optional)
+            results: Documents from ``semantic_search()``.
+            max_context_length: Truncate beyond this many characters.
 
         Returns:
-            Formatted context string
+            Formatted context string.
 
         Example:
-            results = VectorStorageService.semantic_search(...)
             context = VectorStorageService.format_search_results_for_context(
-                results,
-                max_context_length=2000
+                results, max_context_length=2000,
             )
-
-            # Use in prompt
-            system_msg = f"Context:\n{context}\n\nQuestion: {query}"
         """
         context_parts = []
 
         for i, doc in enumerate(results, 1):
             source = doc.metadata.get("file_name", "Unknown")
             content = doc.page_content
-
             context_parts.append(f"[Source {i}: {source}]\n{content}\n")
 
         context = "\n".join(context_parts)
@@ -369,30 +389,30 @@ class VectorStorageService:
     @staticmethod
     def get_user_storage_stats(user: CustomUser) -> Dict[str, Any]:
         """
-        Get storage statistics for user's documents.
+        Aggregate storage statistics for a user.
 
         Args:
             user: The user
 
         Returns:
-            Dict with storage stats
+            Dict with total_documents, total_chunks, total_size_mb, etc.
 
         Example:
             stats = VectorStorageService.get_user_storage_stats(user)
-            print(f"Total chunks: {stats['total_chunks']}")
         """
         user_docs = UserDocument.objects.filter(
-            user=user, processing_status="completed"
+            user=user, processing_status="completed",
         )
 
         total_docs = user_docs.count()
         total_chunks = sum(doc.chunk_count or 0 for doc in user_docs)
         total_size = sum(doc.file_size or 0 for doc in user_docs)
 
-        collections = set()
-        for doc in user_docs:
-            if doc.vector_collection_name:
-                collections.add(doc.vector_collection_name)
+        collections = {
+            doc.vector_collection_name
+            for doc in user_docs
+            if doc.vector_collection_name
+        }
 
         return {
             "total_documents": total_docs,
@@ -404,31 +424,20 @@ class VectorStorageService:
         }
 
     @staticmethod
-    def reindex_document(
-        document: UserDocument, new_chunks: List[str], user: CustomUser
-    ) -> List[str]:
+    def get_collection_documents(
+        collection_name: str,
+        user: Optional[CustomUser] = None,
+    ) -> List[UserDocument]:
         """
-        Reindex a document (delete old + create new embeddings).
+        Get all UserDocument records belonging to a collection/table.
 
         Args:
-            document: UserDocument to reindex
-            new_chunks: New text chunks
-            user: Document owner
+            collection_name: Table name
+            user: Optional user filter
 
         Returns:
-            New vector IDs
-
-        Example:
-            # Reprocess with different chunk size
-            new_chunks = different_splitter.split_text(text)
-            VectorStorageService.reindex_document(doc, new_chunks, user)
+            List of UserDocument instances
         """
-        # Delete old embeddings
-        VectorStorageService.delete_document_embeddings(document)
-
-        # Create new embeddings
-        vector_ids = VectorStorageService.store_document_embeddings(
-            document=document, chunks=new_chunks, user=user
+        return UserDocument.get_documents_in_collection(
+            collection_name=collection_name, user=user,
         )
-
-        return vector_ids
