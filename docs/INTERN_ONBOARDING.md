@@ -137,8 +137,8 @@ chatbot-redis    Up (healthy)
 **What's running:**
 | Service | Host Port | What it does |
 |---------|-----------|-------------|
-| PostgreSQL + pgvector | `localhost:5433` | Three databases: `chatbot_db`, `langchain_pgvector`, `langchain_history` |
-| Redis | `localhost:6380` | Cache, Celery broker, WebSocket channels |
+| PostgreSQL + pgvector | `localhost:5434` | Three databases: `chatbot_db`, `langchain_pgvector`, `langchain_history` |
+| Redis | `localhost:6381` | Cache, Celery broker, WebSocket channels |
 
 > 💡 **Why non-standard ports?** So Docker doesn't clash with any Postgres/Redis you might already have on your machine.
 
@@ -627,7 +627,7 @@ cd backend
 source venv/bin/activate
 ```
 
-### "Connection refused" on port 5433
+### "Connection refused" on port 5434
 ```bash
 # PostgreSQL isn't running or isn't healthy yet
 docker compose logs db
