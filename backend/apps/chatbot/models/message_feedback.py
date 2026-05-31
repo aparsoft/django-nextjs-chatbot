@@ -159,6 +159,47 @@ class MessageFeedback(TimestampedModel):
     def __str__(self):
         return f"{self.user.email} - {self.rating} - Session {self.chat_session.title}"
 
+    # ------------------------------------------------------------------
+    # Properties
+    # ------------------------------------------------------------------
+
+    @property
+    def is_positive(self):
+        """Check if this is positive feedback."""
+        return self.rating in ["thumbs_up", "excellent", "good"]
+
+    @property
+    def is_negative(self):
+        """Check if this is negative feedback."""
+        return self.rating in ["thumbs_down", "poor", "very_poor"]
+
+    @property
+    def is_neutral(self):
+        """Check if this is neutral feedback."""
+        return self.rating == "neutral"
+
+    @property
+    def has_issue_report(self):
+        """Check if a specific issue was reported."""
+        return bool(self.reported_issue)
+
+    @property
+    def sentiment_score(self):
+        """
+        Return a numeric sentiment score (-1, 0, +1).
+
+        Useful for aggregation in analytics dashboards.
+        """
+        if self.is_positive:
+            return 1
+        elif self.is_negative:
+            return -1
+        return 0
+
+    # ------------------------------------------------------------------
+    # Instance methods
+    # ------------------------------------------------------------------
+
     def mark_reviewed(self, reviewer, action_taken="noted", admin_notes=""):
         """Mark feedback as reviewed by admin."""
         from django.utils import timezone
@@ -179,6 +220,55 @@ class MessageFeedback(TimestampedModel):
                 "admin_notes",
             ]
         )
+
+    def escalate(self, escalated_by, reason=""):
+        """
+        Escalate feedback for urgent review.
+
+        Args:
+            escalated_by: Admin user who escalated
+            reason: Escalation reason
+        """
+        from django.utils import timezone
+
+        self.action_taken = "escalated"
+        self.reviewed = True
+        self.reviewed_at = timezone.now()
+        self.reviewed_by = escalated_by
+        if reason:
+            self.admin_notes = f"[ESCALATED] {reason}"
+
+        self.save(
+            update_fields=[
+                "action_taken",
+                "reviewed",
+                "reviewed_at",
+                "reviewed_by",
+                "admin_notes",
+            ]
+        )
+
+    def to_display_dict(self):
+        """
+        Return a serializable dict for API responses.
+        """
+        return {
+            "id": self.id,
+            "rating": self.rating,
+            "is_positive": self.is_positive,
+            "sentiment_score": self.sentiment_score,
+            "feedback_categories": self.feedback_categories,
+            "feedback_text": self.feedback_text,
+            "reported_issue": self.reported_issue,
+            "model_used": self.model_used,
+            "reviewed": self.reviewed,
+            "action_taken": self.action_taken,
+            "created_at": self.created_at.isoformat(),
+        }
+
+    # ------------------------------------------------------------------
+    # Class methods — analytics
+    # ------------------------------------------------------------------
 
     @classmethod
     def get_session_satisfaction(cls, chat_session):
@@ -227,3 +317,120 @@ class MessageFeedback(TimestampedModel):
             "positive": positive,
             "satisfaction_rate": (positive / total * 100) if total > 0 else 0.0,
         }
+
+    @classmethod
+    def get_overall_satisfaction(cls):
+        """
+        Get platform-wide satisfaction metrics.
+
+        Useful for admin dashboard / health metrics.
+
+        Returns:
+            dict with total, positive, negative, satisfaction_rate, avg_sentiment
+        """
+        from django.db.models import Count, Q
+
+        aggregates = cls.objects.aggregate(
+            total=Count("id"),
+            positive=Count("id", filter=Q(rating__in=["thumbs_up", "excellent", "good"])),
+            negative=Count("id", filter=Q(rating__in=["thumbs_down", "poor", "very_poor"])),
+        )
+
+        total = aggregates["total"]
+        if total == 0:
+            return {"total": 0, "satisfaction_rate": 0.0, "avg_sentiment": 0.0}
+
+        return {
+            "total": total,
+            "positive": aggregates["positive"],
+            "negative": aggregates["negative"],
+            "neutral": total - aggregates["positive"] - aggregates["negative"],
+            "satisfaction_rate": round(aggregates["positive"] / total * 100, 1),
+        }
+
+    @classmethod
+    def get_unreviewed(cls, limit=None):
+        """
+        Get unreviewed feedback for admin review queue.
+
+        Args:
+            limit: Optional max results
+
+        Returns:
+            QuerySet of unreviewed feedback, newest first
+        """
+        qs = cls.objects.filter(reviewed=False).order_by("-created_at")
+        if limit:
+            qs = qs[:limit]
+        return qs
+
+    @classmethod
+    def get_recent_feedback(cls, limit=10):
+        """
+        Get most recent feedback across all users (for admin dashboard).
+
+        Args:
+            limit: Max results to return
+
+        Returns:
+            QuerySet
+        """
+        return cls.objects.select_related("user", "chat_session").order_by(
+            "-created_at"
+        )[:limit]
+
+    @classmethod
+    def get_issue_breakdown(cls):
+        """
+        Get breakdown of reported issues by type.
+
+        Returns:
+            list of dicts: [{'reported_issue': str, 'count': int}]
+        """
+        return list(
+            cls.objects.filter(reported_issue__isnull=False)
+            .values("reported_issue")
+            .annotate(count=models.Count("id"))
+            .order_by("-count")
+        )
+
+    @classmethod
+    def create_feedback(cls, user, chat_session, checkpoint_id, message_index,
+                        rating, feedback_text=None, feedback_categories=None,
+                        reported_issue=None, message_preview=None, model_used=None):
+        """
+        Create a feedback record with validation.
+
+        Convenience method that handles the common creation pattern
+        and prevents duplicate feedback (unique_together).
+
+        Args:
+            user: User providing feedback
+            chat_session: ChatSession instance
+            checkpoint_id: LangGraph checkpoint ID
+            message_index: Message index in checkpoint
+            rating: Rating choice value
+            feedback_text: Optional text feedback
+            feedback_categories: Optional list of category strings
+            reported_issue: Optional issue type
+            message_preview: Optional preview of the rated message
+            model_used: Optional model name
+
+        Returns:
+            MessageFeedback instance
+
+        Raises:
+            IntegrityError: If feedback already exists for this message/user
+        """
+        return cls.objects.create(
+            user=user,
+            chat_session=chat_session,
+            checkpoint_id=checkpoint_id,
+            message_index=message_index,
+            rating=rating,
+            feedback_text=feedback_text or "",
+            feedback_categories=feedback_categories or [],
+            reported_issue=reported_issue,
+            message_preview=message_preview,
+            model_used=model_used,
+        )
