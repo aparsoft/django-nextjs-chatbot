@@ -109,7 +109,7 @@ cd django-nextjs-chatbot
 
 ```bash
 # Copy the template
-cp .env.example .env.local
+cp .env.example .env
 
 # Open it and fill in your OpenAI API key (ask your mentor for one)
 # The rest works with defaults for local development
@@ -616,8 +616,8 @@ Now you're ready to contribute! Here are good first issues:
 docker compose up db redis -d
 docker compose ps  # Should show "healthy"
 
-# Make sure you have .env.local
-cp .env.example .env.local
+# Make sure you have .env
+cp .env.example .env
 ```
 
 ### "ModuleNotFoundError: No module named 'django'"
