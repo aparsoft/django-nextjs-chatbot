@@ -1,25 +1,11 @@
-# /home/ram/aparsoft/.gitignore
+# =============================================================================
+# ConvoInsight Platform - .gitignore
+# =============================================================================
 
-# Docker
-.docker/
-# Keep Dockerfiles - we need them!
-# **/Dockerfile
-*.env
-docker-compose.override.yml
-docker-compose.override.yaml
-.docker-compose.override.yml
-.docker-compose.override.yaml
-# docker-compose.dev.yml
-# Keep docker-compose.yml - we need it!
-# docker-compose.yml
-# docker-compose.prod.yml
-docker-compose.staging.yml
-docker-sync.yml
-docker/data/*
-!docker/data/.gitkeep
-docker/logs/*
-!docker/logs/.gitkeep
-docker-compose.debug.yml
+# Environment & Secrets
+.env
+.env.*
+!.env.example
 
 # Python
 __pycache__/
@@ -30,161 +16,84 @@ __pycache__/
 *.egg-info/
 dist/
 build/
-eggs/
-parts/
-bin/
-var/
-sdist/
-develop-eggs/
-.installed.cfg
-.Python
-*.manifest
-*.spec
-MANIFEST
-
-# Virtual Environment
-.env
 .venv
-env/
 venv/
-finvenv/
-ENV/
-env.bak/
-venv.bak/
-*.env
+env/
 
 # Django
 *.log
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
-media/
 staticfiles/
-# Ignore static files except chatbot widgets
-backend/static/*
-!backend/static/chatbot-widget/
+media/
+
+# Docker (keep Dockerfile and docker-compose.yml in git)
+.docker/
+
+# Redis / Postgres data
+pg_data/
+redis_data/
 
 # Node.js
 node_modules/
-npm-debug.log
-yarn-debug.log
-yarn-error.log
 .next/
 out/
 
-# Development Tools
+# Audio
+*.wav
+*.mp3
+*.ogg
+*.flac
+*.m4a
+*.aac
+*.opus
+*.webm
+*.aiff
+*.alac
+
+# IDE
 .idea/
 .vscode/
 *.swp
 *.swo
 .DS_Store
 
-# Testing and Coverage
+# Testing & Coverage
 .coverage
 .coverage.*
-.tox/
-.nox/
 htmlcov/
 .pytest_cache/
-nosetests.xml
 coverage.xml
-*.cover
-.hypothesis/
-
-# Documentation
-docs/_build/
-site/
+.tox/
 
 # Type Checking
 .mypy_cache/
-.dmypy.json
-dmypy.json
-.pyre/
-.pytype/
 
 # Jupyter
 .ipynb_checkpoints
-_*.ipynb
-ipython_config.py
-profile_default/
 
-# Model & Data files
+# Model & Data files (too large for git)
 *.pt
 *.pth
 *.bin
 *.safetensors
-*.csv
 *.joblib
 *.dill
-
-# Images
-*/*.jpg
-# */*.png
+*_bertopic_model*
+*_transformer_model*
 
 # Project Specific
-local_folder/**/*
 local_folder
-**/social/*
-project_utils/
-*/*/local/
-script.*
-_*.py
-!__init__.py
-_*.md
-**/logs/
-**/results/
-**/wandb/
-_error.md
-tests/
-*.ini
-
-# Frontend Specific
-frontend/node_modules
-frontend/dist
-frontend/.env.local
-
-# SSL/TLS
-postgres/config/ssl/*
-!postgres/config/ssl/.gitkeep
-nginx/certbot/conf/*
-!nginx/certbot/conf/.gitkeep
-*/nginx.dev.conf
-
-# Dependency Management
-#Pipfile.lock
-#poetry.lock
-#pdm.lock
-.pdm.toml
-__pypackages__/
+local_folder/
+prototype/
+logs/
+auto_commit.py
+.collection_info/
+.checkpoints/
+.agents/
+knowledge_base/
 
 # Task Runners
 celerybeat-schedule
 celerybeat.pid
-
-# Other
-*.sage.py
-cython_debug/
-.scrapy
-.webassets-cache
-.spyderproject
-.spyproject
-.ropeproject
-
-# Volume mounts & temporary files
-tmp/
-temp/
-.tmp/
-volumes/
-# data/
-!data/.gitkeep
-pg_data/
-redis_data/
-elasticsearch_data/
-mongo_data/
-**models_summary.md
-**/backups
-
-collection_info/
-.checkpoints/
-*.ckpt
-*.ckpt.*
