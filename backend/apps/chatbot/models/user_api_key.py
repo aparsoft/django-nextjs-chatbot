@@ -133,16 +133,52 @@ class UserAPIKey(TimestampedModel):
     def __str__(self):
         return f"{self.user.email} - {self.provider} ({self.key_name})"
 
+    # ------------------------------------------------------------------
+    # Properties
+    # ------------------------------------------------------------------
+
+    @property
+    def display_key(self):
+        """
+        Masked key for display in the UI.
+
+        Shows prefix + asterisks + last 4 chars.
+        Example: 'sk-proj-****a1b2'
+        """
+        if not self.key_prefix:
+            return "****"
+        return f"{self.key_prefix}****"
+
+    @property
+    def provider_name(self):
+        """Human-readable provider name."""
+        provider_names = {
+            "openai": "OpenAI",
+            "anthropic": "Anthropic (Claude)",
+            "google": "Google AI",
+            "cohere": "Cohere",
+            "huggingface": "HuggingFace",
+            "azure": "Azure OpenAI",
+            "custom": self.provider_display_name or "Custom Provider",
+        }
+        return provider_names.get(self.provider, self.provider.title())
+
+    @property
+    def has_limits(self):
+        """Check if any limits are configured."""
+        return self.daily_limit is not None or self.monthly_limit is not None
+
+    # ------------------------------------------------------------------
+    # Instance methods — encryption
+    # ------------------------------------------------------------------
+
     @staticmethod
     def get_encryption_key():
         """Get or create encryption key."""
-        # In production, store this in environment variable or secrets manager
         key = getattr(django_settings, "API_KEY_ENCRYPTION_KEY", None)
 
         if not key:
-            # Generate a key (do this once and save it)
             key = Fernet.generate_key()
-            # In production: save this key securely!
 
         return key
 
@@ -165,6 +201,10 @@ class UserAPIKey(TimestampedModel):
         decrypted = fernet.decrypt(self.encrypted_key)
         return decrypted.decode()
 
+    # ------------------------------------------------------------------
+    # Instance methods — validation & usage
+    # ------------------------------------------------------------------
+
     def validate_key(self):
         """
         Validate API key with provider.
@@ -182,17 +222,13 @@ class UserAPIKey(TimestampedModel):
                 from openai import OpenAI
 
                 client = OpenAI(api_key=api_key)
-                # Test with minimal request
                 client.models.list()
 
             elif self.provider == "anthropic":
                 import anthropic
 
                 client = anthropic.Anthropic(api_key=api_key)
-                # Test request
                 client.models.list()
-
-            # Add more providers as needed
 
             # Mark as validated
             self.is_validated = True
@@ -221,6 +257,28 @@ class UserAPIKey(TimestampedModel):
 
         self.save(update_fields=["usage_count", "total_tokens_used", "last_used_at"])
 
+    def rotate_key(self, new_api_key):
+        """
+        Replace the stored API key with a new one.
+
+        Re-encrypts and resets validation status.
+
+        Args:
+            new_api_key: The new API key string
+        """
+        self.encrypt_api_key(new_api_key)
+        self.is_validated = False
+        self.validation_error = None
+        self.save(update_fields=[
+            "encrypted_key", "key_prefix",
+            "is_validated", "validation_error",
+        ])
+
+    def deactivate(self):
+        """Deactivate this key (soft delete)."""
+        self.is_active = False
+        self.save(update_fields=["is_active"])
+
     def check_limits(self, tokens_to_use=0):
         """
         Check if usage would exceed limits.
@@ -229,7 +287,6 @@ class UserAPIKey(TimestampedModel):
             dict: {'allowed': bool, 'reason': str}
         """
         from django.utils import timezone
-        from datetime import timedelta
 
         # Check daily limit
         if self.daily_limit:
@@ -279,9 +336,102 @@ class UserAPIKey(TimestampedModel):
 
         return {"allowed": True, "reason": "Within limits"}
 
+    def to_display_dict(self):
+        """
+        Return a serializable dict for API responses.
+
+        Never includes the encrypted key or decrypted key!
+        """
+        return {
+            "id": self.id,
+            "provider": self.provider,
+            "provider_name": self.provider_name,
+            "key_name": self.key_name,
+            "display_key": self.display_key,
+            "is_active": self.is_active,
+            "is_default": self.is_default,
+            "is_validated": self.is_validated,
+            "last_validated_at": (
+                self.last_validated_at.isoformat() if self.last_validated_at else None
+            ),
+            "usage_count": self.usage_count,
+            "total_tokens_used": self.total_tokens_used,
+            "has_limits": self.has_limits,
+            "created_at": self.created_at.isoformat(),
+        }
+
+    # ------------------------------------------------------------------
+    # Class methods
+    # ------------------------------------------------------------------
+
     @classmethod
     def get_default_key(cls, user, provider):
         """Get default key for user and provider."""
         return cls.objects.filter(
             user=user, provider=provider, is_active=True, is_default=True
         ).first()
+
+    @classmethod
+    def get_any_active_key(cls, user, provider):
+        """
+        Get any active key for user and provider.
+
+        Falls back from default -> most recently used -> any active.
+
+        Returns:
+            UserAPIKey or None
+        """
+        return (
+            cls.objects.filter(user=user, provider=provider, is_active=True)
+            .order_by("-is_default", "-last_used_at")
+            .first()
+        )
+
+    @classmethod
+    def get_providers_for_user(cls, user):
+        """
+        Get list of providers user has keys for.
+
+        Returns:
+            list of str: Provider names
+        """
+        return list(
+            cls.objects.filter(user=user, is_active=True)
+            .values_list("provider", flat=True)
+            .distinct()
+        )
+
+    @classmethod
+    def get_usage_summary(cls, user):
+        """
+        Get aggregated usage stats across all keys for a user.
+
+        Returns:
+            dict with total_keys, active_keys, total_tokens, by_provider
+        """
+        from django.db.models import Count, Sum
+
+        keys = cls.objects.filter(user=user)
+
+        overall = keys.aggregate(
+            total_keys=Count("id"),
+            active_keys=Count("id", filter=models.Q(is_active=True)),
+            total_tokens=Sum("total_tokens_used"),
+        )
+
+        by_provider = (
+            keys.filter(is_active=True)
+            .values("provider")
+            .annotate(
+                key_count=Count("id"),
+                total_tokens=Sum("total_tokens_used"),
+                total_usage=Sum("usage_count"),
+            )
+        )
+
+        return {
+            "total_keys": overall["total_keys"],
+            "active_keys": overall["active_keys"],
+            "total_tokens": overall["total_tokens"] or 0,
+            "by_provider": list(by_provider),
+        }
