@@ -138,116 +138,221 @@ SITE_ID = 1
 
 ROOT_URLCONF = "config.urls"
 
+# =============================================================================
+# Static & Media Files
+# =============================================================================
+
+STATIC_URL = "/static/"
+STATICFILES_DIRS = [BASE_DIR / "static"]
+STATIC_ROOT = BASE_DIR / "staticfiles"
+
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
+
+STATICFILES_FINDERS = [
+    "django.contrib.staticfiles.finders.FileSystemFinder",
+    "django.contrib.staticfiles.finders.AppDirectoriesFinder",
+]
+
 accept_content = ["application/json"]
 task_serializer = "json"
 result_serializer = "json"
 
-# Celery Configuration Options
+# =============================================================================
+# Celery
+# =============================================================================
+
+CELERY_BROKER_URL = config("REDIS_URL", default="redis://localhost:6379/0")
+CELERY_RESULT_BACKEND = config("REDIS_URL", default="redis://localhost:6379/0")
+CELERY_ACCEPT_CONTENT = ["application/json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
 CELERY_TASK_TRACK_STARTED = True
 CELERY_TASK_TIME_LIMIT = 30 * 60
 
-# For session cache
-SESSION_ENGINE = "django.contrib.sessions.backends.cached_db"
-SESSION_CACHE_ALIAS = "default"
+# =============================================================================
+# Channels (WebSocket)
+# =============================================================================
 
-SPECTACULAR_SETTINGS = {
-    # Basic API info
-    "TITLE": "Aparsoft Chatbot API",
-    "DESCRIPTION": "AI-Powered Technology Solutions and Digital Transformation Provider API",
-    "VERSION": "1.0.0",
-    "SERVE_INCLUDE_SCHEMA": False,
-    # UI settings
-    "SWAGGER_UI_DIST": "SIDECAR",  # shorthand to use the sidecar instead
-    "SWAGGER_UI_FAVICON_HREF": "SIDECAR",
-    "REDOC_DIST": "SIDECAR",
-    # Schema configuration
-    "SCHEMA_PATH_PREFIX": "/api/v[0-9]",  # Include only API paths
-    "COMPONENT_SPLIT_REQUEST": True,
-    "COMPONENT_NO_READ_ONLY_REQUIRED": False,
-    "SERVERS": [{"url": "/api/v1"}],  # This specifies the base URL for the API
-    # Authentication settings
-    "SECURITY": [{"Bearer": []}],
-    # Tag configuration
-    # "TAGS": [
-    #     {"name": "Accounts", "description": "Authentication and user management"},
-    #     {"name": "Core", "description": "Core functionality"},
-    #     {"name": "Customers", "description": "Customer management"},
-    #     {"name": "WorkItems", "description": "Work items and tasks"},
-    # ],
-    # Additional customization
-    "SWAGGER_UI_SETTINGS": {
-        "deepLinking": True,
-        "persistAuthorization": True,
-        "displayOperationId": False,
-        "defaultModelsExpandDepth": 3,
-        "defaultModelExpandDepth": 3,
-        "defaultModelRendering": "model",
-        "displayRequestDuration": True,
-        "docExpansion": "none",
-        "filter": True,
-        "showExtensions": True,
-        "showCommonExtensions": True,
-        "tryItOutEnabled": True,
-    },
-    # Preprocessing and extensions
-    "ENUM_NAME_OVERRIDES": {},
-    "PREPROCESSING_HOOKS": [],
-    "POSTPROCESSING_HOOKS": [],
-    "APPEND_COMPONENTS": {},
-    "EXTENSIONS_HOOK": None,
-}
+_redis_url = config("REDIS_URL", default="redis://localhost:6379/0")
 
-
-# Jazzmin Settings
-JAZZMIN_SETTINGS = {
-    "site_title": "Admin Portal",
-    "site_header": "Aparsoft Admin",
-    "site_brand": "Admin",
-    "welcome_sign": "Welcome to the Admin Portal",
-    "copyright": "aparsoft",
-    "search_model": ["accounts.CustomUser", "auth.Group"],
-    "user_model": "accounts.CustomUser",
-    "user_avatar": None,
-    "usermenu_links": [],
-    "show_sidebar": True,
-    "navigation_expanded": True,
-    "hide_apps": [],
-    # List of apps and models to exclude from the admin
-    "hide_models": ["auth.User"],
-    "icons": {
-        "auth": "fas fa-users-cog",
-        "auth.user": "fas fa-user",
-        "auth.Group": "fas fa-users",
-        "accounts": "fas fa-user-circle",
-        "core": "fas fa-cog",
-        "socialaccount.socialapp": "fas fa-share-alt",
-        "socialaccount.socialtoken": "fas fa-key",
-        "socialaccount.socialaccount": "fas fa-user-circle",
-    },
-    "default_icon_parents": "fas fa-chevron-circle-right",
-    "default_icon_children": "fas fa-circle",
-    "related_modal_active": True,
-    "custom_css": None,
-    "custom_js": None,
-    "show_ui_builder": True,
-    "changeform_format": "horizontal_tabs",
-    "changeform_format_overrides": {
-        "auth.user": "collapsible",
-        "auth.group": "vertical_tabs",
-    },
-    "custom_links": {},
-    "order_with_respect_to": ["auth", "accounts", "core", "socialaccount"],
-    "icons_per_app": {
-        "socialaccount": {
-            "models": {
-                "socialapp": "fas fa-share-alt",
-                "socialtoken": "fas fa-key",
-                "socialaccount": "fas fa-user-circle",
-            },
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [_redis_url.replace("/0", "/0")],
+            "capacity": 1500,
+            "expiry": 10,
         },
     },
 }
 
-__version__ = "0.1.0"
+# =============================================================================
+# Caching
+# =============================================================================
 
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": _redis_url.replace("/0", "/1"),
+        "OPTIONS": {
+            "db": "1",
+            "pool_class": "redis.connection.ConnectionPool",
+            "socket_timeout": 5,
+            "socket_connect_timeout": 5,
+            "retry_on_timeout": True,
+            "max_connections": 100,
+        },
+        "KEY_PREFIX": "nlp_playground",
+    },
+}
+
+SESSION_ENGINE = "django.contrib.sessions.backends.cached_db"
+SESSION_CACHE_ALIAS = "default"
+# =============================================================================
+# Django REST Framework
+# =============================================================================
+
+REST_FRAMEWORK = {
+    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.LimitOffsetPagination",
+    "DEFAULT_FILTER_BACKENDS": [
+        "django_filters.rest_framework.DjangoFilterBackend",
+        "rest_framework.filters.OrderingFilter",
+    ],
+    "PAGE_SIZE": int(config("DJANGO_PAGINATION_LIMIT", 18)),
+    "DATETIME_FORMAT": "%Y-%m-%dT%H:%M:%S.%fZ",
+    "DEFAULT_RENDERER_CLASSES": (
+        "rest_framework.renderers.JSONRenderer",
+        "rest_framework.renderers.BrowsableAPIRenderer",
+    ),
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.IsAuthenticated",
+    ],
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework_simplejwt.authentication.JWTAuthentication",
+        "rest_framework.authentication.SessionAuthentication",
+        "rest_framework.authentication.BasicAuthentication",
+    ],
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
+        "rest_framework.throttling.ScopedRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": "100/second",
+        "user": "1000/second",
+        "subscribe": "60/minute",
+    },
+    "TEST_REQUEST_DEFAULT_FORMAT": "json",
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+}
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "ConvoInsight API",
+    "DESCRIPTION": "API for the ConvoInsight - Customer Conversational Intelligence Platform",
+    "VERSION": "0.2.0",
+    "SERVE_INCLUDE_SCHEMA": False,
+    "COMPONENT_SPLIT_REQUEST": True,
+    "SCHEMA_PATH_PREFIX": r"/api/v[0-9]+/",
+    # NOTE: Two cosmetic enum-naming warnings about a shared `status` field across
+    # Order / OrderTracking / Conversation are accepted in Step 1. They do not
+    # affect schema correctness. Will be addressed in Step 2 if needed.
+}
+# =============================================================================
+# JWT Authentication (Step 2)
+# =============================================================================
+from datetime import timedelta  # noqa: E402
+
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+    "ROTATE_REFRESH_TOKENS": True,
+    "BLACKLIST_AFTER_ROTATION": True,
+    "UPDATE_LAST_LOGIN": True,
+    "ALGORITHM": "HS256",
+    "SIGNING_KEY": config("DJANGO_SECRET_KEY", default="dev-only-signing-key"),
+    "AUTH_HEADER_TYPES": ("Bearer",),
+    "USER_ID_FIELD": "id",
+    "USER_ID_CLAIM": "user_id",
+    "AUTH_TOKEN_CLASSES": ("rest_framework_simplejwt.tokens.AccessToken",),
+    "TOKEN_TYPE_CLAIM": "token_type",
+    "JTI_CLAIM": "jti",
+}
+
+# =============================================================================
+# Logging
+# =============================================================================
+
+LOGS_DIR = BASE_DIR / "logs"
+if not LOGS_DIR.exists():
+    LOGS_DIR.mkdir(exist_ok=True)
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "verbose": {
+            "format": "{levelname} {asctime} {module} {process:d} {thread:d} {message}",
+            "style": "{",
+        },
+        "simple": {
+            "format": "{levelname} {asctime} {message}",
+            "style": "{",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "simple",
+        },
+        "file": {
+            "class": "logging.FileHandler",
+            "filename": BASE_DIR / "logs" / "debug.log",
+            "formatter": "verbose",
+        },
+    },
+    "loggers": {
+        "django": {
+            "handlers": ["console", "file"],
+            "level": "INFO",
+            "propagate": True,
+        },
+        "orders": {
+            "handlers": ["console", "file"],
+            "level": "DEBUG",
+            "propagate": True,
+        },
+        "convochat": {
+            "handlers": ["console", "file"],
+            "level": "DEBUG",
+            "propagate": True,
+        },
+        "playground": {
+            "handlers": ["console", "file"],
+            "level": "DEBUG",
+            "propagate": True,
+        },
+        "support_agent": {
+            "handlers": ["console", "file"],
+            "level": "DEBUG",
+            "propagate": True,
+        },
+        "general_assistant": {
+            "handlers": ["console", "file"],
+            "level": "DEBUG",
+            "propagate": True,
+        },
+        "celery": {
+            "handlers": ["console", "file"],
+            "level": "INFO",
+            "propagate": True,
+        },
+    },
+}
+
+# =============================================================================
+# Version
+# =============================================================================
+
+__version__ = "0.1.0"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
