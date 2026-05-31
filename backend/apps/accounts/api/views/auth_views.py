@@ -13,9 +13,10 @@ from django.conf import settings
 from rest_framework.exceptions import AuthenticationFailed, ValidationError
 from rest_framework.permissions import AllowAny
 from rest_framework.views import APIView
-from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from rest_framework_simplejwt.token_blacklist.models import OutstandingToken
 from rest_framework_simplejwt.tokens import RefreshToken
+from accounts.api.serializers.auth_serializers import CustomTokenRefreshSerializer
 from django.contrib.auth import get_user_model
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import ensure_csrf_cookie
@@ -343,4 +344,56 @@ class LogoutView(APIView):
         )
         for cookie in ["auth_state", "access_token", "refresh_token", "csrftoken"]:
             response.delete_cookie(cookie, path="/")
+        return response
+
+
+# =============================================================================
+# Token Refresh
+# =============================================================================
+
+
+class CustomTokenRefreshView(TokenRefreshView):
+    """
+    Token refresh endpoint that accepts refresh token from:
+    1. Request body: {"refresh": "<token>"}
+    2. Cookie: refresh_token (fallback via CustomTokenRefreshSerializer)
+
+    Returns new access token (and rotated refresh token if ROTATE_REFRESH_TOKENS=True).
+    """
+
+    serializer_class = CustomTokenRefreshSerializer
+
+    def post(self, request, *args, **kwargs):
+        response = super().post(request, *args, **kwargs)
+
+        # If token rotation is enabled, update the refresh cookie
+        if "refresh" in response.data:
+            cookie_max_age = settings.SIMPLE_JWT.get(
+                "AUTH_COOKIE_REFRESH_MAX_AGE", 86400
+            )
+            response.set_cookie(
+                key="refresh_token",
+                value=response.data["refresh"],
+                max_age=cookie_max_age,
+                httponly=settings.SIMPLE_JWT.get("AUTH_COOKIE_HTTP_ONLY", True),
+                secure=settings.SIMPLE_JWT.get("AUTH_COOKIE_SECURE", not settings.DEBUG),
+                samesite=settings.SIMPLE_JWT.get("AUTH_COOKIE_SAMESITE", "Lax"),
+                path="/",
+            )
+
+        # Update access token cookie
+        if "access" in response.data:
+            cookie_max_age = settings.SIMPLE_JWT.get(
+                "AUTH_COOKIE_ACCESS_MAX_AGE", 300
+            )
+            response.set_cookie(
+                key="access_token",
+                value=response.data["access"],
+                max_age=cookie_max_age,
+                httponly=settings.SIMPLE_JWT.get("AUTH_COOKIE_HTTP_ONLY", True),
+                secure=settings.SIMPLE_JWT.get("AUTH_COOKIE_SECURE", not settings.DEBUG),
+                samesite=settings.SIMPLE_JWT.get("AUTH_COOKIE_SAMESITE", "Lax"),
+                path="/",
+            )
+
         return response
