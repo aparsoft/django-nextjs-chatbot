@@ -75,8 +75,8 @@ npm run dev
 | **Frontend** | http://localhost:3000 | — |
 | **Backend API** | http://localhost:8000/api/v1/ | — |
 | **Django Admin** | http://localhost:8000/chatbot-admin/ | (your superuser) |
-| **PostgreSQL** | localhost:**5433** | chatbot_user / chatbot_pass |
-| **Redis** | localhost:**6380** | — |
+| **PostgreSQL** | localhost:**5434** | chatbot_user / chatbot_pass |
+| **Redis** | localhost:**6381** | — |
 
 ---
 
@@ -153,7 +153,7 @@ docker compose ps  # Both should show "healthy"
 cd backend && source venv/bin/activate
 ```
 
-### "Connection refused" on port 5433
+### "Connection refused" on port 5434
 ```bash
 # Postgres isn't healthy yet — wait 10 seconds
 docker compose logs db
