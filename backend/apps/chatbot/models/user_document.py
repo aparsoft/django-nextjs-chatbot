@@ -17,6 +17,22 @@ class UserDocument(TimestampedModel):
     This model stores file metadata and references to vector store.
     """
 
+    # Processing status choices
+    STATUS_PENDING = "pending"
+    STATUS_PROCESSING = "processing"
+    STATUS_COMPLETED = "completed"
+    STATUS_FAILED = "failed"
+
+    STATUS_CHOICES = [
+        (STATUS_PENDING, "Pending Processing"),
+        (STATUS_PROCESSING, "Processing"),
+        (STATUS_COMPLETED, "Completed"),
+        (STATUS_FAILED, "Failed"),
+    ]
+
+    # Maximum retries before giving up
+    MAX_RETRIES = 3
+
     # User and session
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -52,13 +68,8 @@ class UserDocument(TimestampedModel):
     # Processing status
     processing_status = models.CharField(
         max_length=20,
-        default="pending",
-        choices=[
-            ("pending", "Pending Processing"),
-            ("processing", "Processing"),
-            ("completed", "Completed"),
-            ("failed", "Failed"),
-        ],
+        default=STATUS_PENDING,
+        choices=STATUS_CHOICES,
         help_text=_("Document processing status"),
     )
 
@@ -176,17 +187,82 @@ class UserDocument(TimestampedModel):
     def __str__(self):
         return f"{self.file_name} ({self.user.email})"
 
+    # ------------------------------------------------------------------
+    # Properties
+    # ------------------------------------------------------------------
+
+    @property
+    def file_size_mb(self):
+        """Get file size in MB."""
+        if self.file_size:
+            return round(self.file_size / (1024 * 1024), 2)
+        return 0
+
+    @property
+    def file_size_display(self):
+        """
+        Human-readable file size string.
+
+        Returns '2.5 MB', '340 KB', etc. — ready for templates/serializers.
+        """
+        size = self.file_size or 0
+        if size >= 1024 * 1024:
+            return f"{round(size / (1024 * 1024), 1)} MB"
+        elif size >= 1024:
+            return f"{round(size / 1024, 1)} KB"
+        return f"{size} bytes"
+
+    @property
+    def is_processable(self):
+        """Check if document can be processed for RAG."""
+        processable_types = [
+            "application/pdf",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/msword",
+            "text/plain",
+            "text/markdown",
+            "text/csv",
+        ]
+        return self.file_type in processable_types
+
+    @property
+    def has_embeddings(self):
+        """Check if document has been processed and has embeddings."""
+        return bool(
+            self.processing_status == self.STATUS_COMPLETED
+            and self.vector_collection_name
+            and self.vector_store_ids
+        )
+
+    @property
+    def is_pending(self):
+        return self.processing_status == self.STATUS_PENDING
+
+    @property
+    def is_processing(self):
+        return self.processing_status == self.STATUS_PROCESSING
+
+    @property
+    def is_completed(self):
+        return self.processing_status == self.STATUS_COMPLETED
+
+    @property
+    def is_failed(self):
+        return self.processing_status == self.STATUS_FAILED
+
+    # ------------------------------------------------------------------
+    # Instance methods — processing state machine
+    # ------------------------------------------------------------------
+
     def save(self, *args, **kwargs):
         """Extract file metadata on save."""
         if self.file:
-            # Extract filename and extension
             if not self.file_name:
                 self.file_name = os.path.basename(self.file.name)
 
             if not self.file_extension:
                 self.file_extension = os.path.splitext(self.file_name)[1].lower()
 
-            # Get file size
             if hasattr(self.file, "size"):
                 self.file_size = self.file.size
 
@@ -194,7 +270,7 @@ class UserDocument(TimestampedModel):
 
     def mark_processing_started(self):
         """Mark document as processing."""
-        self.processing_status = "processing"
+        self.processing_status = self.STATUS_PROCESSING
         self.save(update_fields=["processing_status"])
 
     def mark_processing_completed(
@@ -217,7 +293,7 @@ class UserDocument(TimestampedModel):
         """
         from django.utils import timezone
 
-        self.processing_status = "completed"
+        self.processing_status = self.STATUS_COMPLETED
         self.processed_at = timezone.now()
         self.vector_collection_name = collection_name
         self.vector_store_ids = vector_ids
@@ -242,14 +318,50 @@ class UserDocument(TimestampedModel):
         )
 
     def mark_processing_failed(self, error_message):
-        """Mark document processing as failed."""
-        self.processing_status = "failed"
+        """
+        Mark document processing as failed.
+
+        Increments retry_count automatically.
+        """
+        self.processing_status = self.STATUS_FAILED
         self.processing_error = error_message
         self.retry_count += 1
 
         self.save(
             update_fields=["processing_status", "processing_error", "retry_count"]
         )
+
+    def can_retry_processing(self):
+        """Check if the document can be retried (hasn't exceeded MAX_RETRIES)."""
+        return self.retry_count < self.MAX_RETRIES and self.processing_status in [
+            self.STATUS_FAILED,
+            self.STATUS_PENDING,
+        ]
+
+    def retry_processing(self):
+        """
+        Reset status to pending for a retry.
+
+        Returns:
+            bool: True if retry was initiated, False if max retries exceeded
+        """
+        if not self.can_retry_processing():
+            return False
+
+        self.processing_status = self.STATUS_PENDING
+        self.processing_error = None
+        self.save(update_fields=["processing_status", "processing_error"])
+        return True
+
+    def deactivate(self):
+        """Soft-delete: mark document inactive (hide from search, keep data)."""
+        self.is_active = False
+        self.save(update_fields=["is_active"])
+
+    def reactivate(self):
+        """Reactivate a deactivated document."""
+        self.is_active = True
+        self.save(update_fields=["is_active"])
 
     def get_vector_metadata(self):
         """
@@ -258,7 +370,6 @@ class UserDocument(TimestampedModel):
         Returns:
             dict: Metadata for pgvector filtering
         """
-        # Combine vector_metadata with essential fields
         metadata = {
             "user_id": str(self.user.id),
             "document_id": str(self.id),
@@ -267,48 +378,40 @@ class UserDocument(TimestampedModel):
             "upload_date": self.created_at.isoformat(),
         }
 
-        # Add user tags if present
         if self.tags:
             metadata["tags"] = self.tags
 
-        # Add session if present
         if self.chat_session:
             metadata["session_id"] = str(self.chat_session.id)
 
-        # Merge with custom vector_metadata
         if self.vector_metadata:
             metadata.update(self.vector_metadata)
 
         return metadata
 
-    @property
-    def file_size_mb(self):
-        """Get file size in MB."""
-        if self.file_size:
-            return round(self.file_size / (1024 * 1024), 2)
-        return 0
+    def to_display_dict(self):
+        """
+        Return a serializable dict for API responses.
+        """
+        return {
+            "id": str(self.id),
+            "file_name": self.file_name,
+            "file_size": self.file_size,
+            "file_size_display": self.file_size_display,
+            "file_type": self.file_type,
+            "processing_status": self.processing_status,
+            "has_embeddings": self.has_embeddings,
+            "chunk_count": self.chunk_count,
+            "page_count": self.page_count,
+            "word_count": self.word_count,
+            "is_active": self.is_active,
+            "tags": self.tags,
+            "created_at": self.created_at.isoformat(),
+        }
 
-    @property
-    def is_processable(self):
-        """Check if document can be processed for RAG."""
-        processable_types = [
-            "application/pdf",
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",  # .docx
-            "application/msword",  # .doc
-            "text/plain",
-            "text/markdown",
-            "text/csv",
-        ]
-        return self.file_type in processable_types
-
-    @property
-    def has_embeddings(self):
-        """Check if document has been processed and has embeddings."""
-        return bool(
-            self.processing_status == "completed"
-            and self.vector_collection_name
-            and self.vector_store_ids
-        )
+    # ------------------------------------------------------------------
+    # Class methods — queryset helpers
+    # ------------------------------------------------------------------
 
     @classmethod
     def get_user_storage_usage(cls, user):
@@ -339,10 +442,106 @@ class UserDocument(TimestampedModel):
             QuerySet: Documents in the collection
         """
         queryset = cls.objects.filter(
-            vector_collection_name=collection_name, processing_status="completed"
+            vector_collection_name=collection_name,
+            processing_status=cls.STATUS_COMPLETED,
         )
 
         if user:
             queryset = queryset.filter(user=user)
 
         return queryset
+
+    @classmethod
+    def get_user_documents(cls, user, active_only=True):
+        """
+        Get all documents for a user.
+
+        Args:
+            user: User instance
+            active_only: Only return active documents
+
+        Returns:
+            QuerySet
+        """
+        qs = cls.objects.filter(user=user)
+        if active_only:
+            qs = qs.filter(is_active=True)
+        return qs.order_by("-created_at")
+
+    @classmethod
+    def get_processing_stats(cls, user=None):
+        """
+        Get document processing statistics.
+
+        Args:
+            user: Optional user filter (None = platform-wide)
+
+        Returns:
+            dict with counts per status
+        """
+        qs = cls.objects.all()
+        if user:
+            qs = qs.filter(user=user)
+
+        from django.db.models import Count, Q
+
+        stats = qs.aggregate(
+            total=Count("id"),
+            pending=Count("id", filter=Q(processing_status=cls.STATUS_PENDING)),
+            processing=Count("id", filter=Q(processing_status=cls.STATUS_PROCESSING)),
+            completed=Count("id", filter=Q(processing_status=cls.STATUS_COMPLETED)),
+            failed=Count("id", filter=Q(processing_status=cls.STATUS_FAILED)),
+        )
+
+        return stats
+
+    @classmethod
+    def get_failed_for_retry(cls, user=None):
+        """
+        Get failed documents eligible for retry.
+
+        Args:
+            user: Optional user filter
+
+        Returns:
+            QuerySet of failed documents with retry_count < MAX_RETRIES
+        """
+        qs = cls.objects.filter(
+            processing_status=cls.STATUS_FAILED,
+            retry_count__lt=cls.MAX_RETRIES,
+        )
+        if user:
+            qs = qs.filter(user=user)
+        return qs
+
+    @classmethod
+    def create_from_upload(cls, user, uploaded_file, chat_session=None, title=None, tags=None):
+        """
+        Create a UserDocument from an uploaded file.
+
+        Handles the common pattern of extracting metadata from the
+        Django UploadedFile object.
+
+        Args:
+            user: User uploading the file
+            uploaded_file: Django UploadedFile instance
+            chat_session: Optional ChatSession to associate
+            title: Optional title (defaults to filename)
+            tags: Optional list of tag strings
+
+        Returns:
+            UserDocument instance (in 'pending' status)
+        """
+        doc = cls(
+            user=user,
+            chat_session=chat_session,
+            file=uploaded_file,
+            file_name=uploaded_file.name,
+            file_size=uploaded_file.size,
+            file_type=getattr(uploaded_file, "content_type", "application/octet-stream"),
+            file_extension=os.path.splitext(uploaded_file.name)[1].lower(),
+            title=title or os.path.splitext(uploaded_file.name)[0],
+            tags=tags or [],
+        )
+        doc.save()
+        return doc
