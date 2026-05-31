@@ -21,8 +21,6 @@ from .views import (
     # CustomUser viewsets
     CustomUserViewSet,
     UserContactViewSet,
-    # Profile avatar views
-    ProfileAvatarView,
 )
 
 app_name = "accounts"
@@ -59,10 +57,4 @@ urlpatterns = [
         name="auth_email_verify",
     ),
     path("auth/csrf/", CSRFTokenView.as_view(), name="csrf_token"),
-    # Profile management endpoints
-    path(
-        "users/profile_image/",
-        ProfileAvatarView.as_view(),
-        name="profile_image",
-    ),
 ]
