@@ -7,6 +7,7 @@ ViewSets package for accounts API.
 # Auth views
 from .auth_views import (
     CustomTokenObtainPairView,
+    CustomTokenRefreshView,
     LogoutView,
 )
 
@@ -39,6 +40,7 @@ from .profile_avatar_views import (
 __all__ = [
     # Auth
     "CustomTokenObtainPairView",
+    "CustomTokenRefreshView",
     "LogoutView",
     # Registration
     "RegisterView",
