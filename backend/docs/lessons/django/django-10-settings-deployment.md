@@ -59,7 +59,7 @@ INSTALLED_APPS = [
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.environ.get('DB_NAME', 'convo_insight'),
+        'NAME': os.environ.get('DB_NAME', 'chatbot_db'),
         'USER': os.environ.get('DB_USER', 'postgres'),
         'PASSWORD': os.environ.get('DB_PASSWORD'),
         'HOST': os.environ.get('DB_HOST', 'localhost'),
@@ -224,7 +224,7 @@ SECRET_KEY=your-secret-key-here
 DEBUG=True
 OPENAI_API_KEY=sk-...
 HUGGINGFACEHUB_API_TOKEN=hf_...
-DB_NAME=convo_insight
+DB_NAME=chatbot_db
 DB_PASSWORD=postgres
 ```
 
