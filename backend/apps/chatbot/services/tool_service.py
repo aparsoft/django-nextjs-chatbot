@@ -9,15 +9,18 @@ Usage:
     # Get enabled tools for user
     tools = ToolService.get_user_tools(user)
 
-    # Enable a tool
+    # Enable a tool (from TOOL_REGISTRY)
     ToolService.enable_tool(user, "web_search")
+
+    # Seed all tools for a new user
+    ToolService.seed_tools_for_user(user)
 """
 
 from typing import List, Dict, Any, Optional
-from uuid import UUID
 
 from langchain_core.tools import BaseTool
-from ..models import UserTool, AvailableTool
+from ..models import UserTool
+from ..models.user_tool import TOOL_REGISTRY
 from accounts.models import CustomUser
 
 
@@ -36,48 +39,26 @@ class ToolService:
         Returns:
             List of UserTool instances
         """
-        query = UserTool.objects.filter(user=user)
-
-        if enabled_only:
-            query = query.filter(is_enabled=True)
-
-        return list(query.select_related("available_tool"))
+        return UserTool.get_enabled_for_user(user) if enabled_only else list(
+            UserTool.objects.filter(user=user)
+        )
 
     @staticmethod
     def enable_tool(
         user: CustomUser, tool_name: str, configuration: Optional[Dict[str, Any]] = None
     ) -> UserTool:
         """
-        Enable a tool for user.
+        Enable a tool for user (delegates to model method).
 
         Args:
             user: The user
-            tool_name: Tool internal name
+            tool_name: Tool internal name (must exist in TOOL_REGISTRY)
             configuration: Tool configuration
 
         Returns:
-            Created/updated UserTool instance
+            UserTool instance
         """
-        available_tool = AvailableTool.objects.get(tool_name=tool_name, is_active=True)
-
-        user_tool, created = UserTool.objects.get_or_create(
-            user=user,
-            available_tool=available_tool,
-            defaults={
-                "tool_name": tool_name,
-                "tool_display_name": available_tool.display_name,
-                "is_enabled": True,
-                "configuration": configuration or {},
-            },
-        )
-
-        if not created:
-            user_tool.is_enabled = True
-            if configuration:
-                user_tool.configuration = configuration
-            user_tool.save()
-
-        return user_tool
+        return UserTool.enable_tool(user, tool_name, configuration)
 
     @staticmethod
     def disable_tool(user: CustomUser, tool_name: str) -> None:
@@ -88,7 +69,20 @@ class ToolService:
             user: The user
             tool_name: Tool internal name
         """
-        UserTool.objects.filter(user=user, tool_name=tool_name).update(is_enabled=False)
+        UserTool.disable_tool(user, tool_name)
+
+    @staticmethod
+    def seed_tools_for_user(user: CustomUser) -> None:
+        """
+        Create UserTool entries for every tool in TOOL_REGISTRY.
+
+        Call this after user registration so the frontend can show
+        all available tools with toggle switches.
+
+        Args:
+            user: The newly registered user
+        """
+        UserTool.seed_all_tools(user)
 
     @staticmethod
     def get_tool_instances(user: CustomUser) -> List[BaseTool]:
@@ -147,6 +141,9 @@ class ToolService:
             user: The user
             tool_name: Tool that was used
         """
+        from django.utils import timezone
+        from django.db import models
+
         UserTool.objects.filter(user=user, tool_name=tool_name).update(
             usage_count=models.F("usage_count") + 1, last_used_at=timezone.now()
         )
