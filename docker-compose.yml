@@ -30,8 +30,8 @@
 #     cd frontend && npm run dev
 #
 # Ports (host:container):
-#   PostgreSQL + pgvector : 5433:5432
-#   Redis                 : 6380:6379
+#   PostgreSQL + pgvector : 5434:5432
+#   Redis                 : 6381:6379
 #
 # Databases created automatically by docker/init-db.sh:
 #   chatbot_db          → Django ORM models
@@ -59,7 +59,7 @@ services:
       PGVECTOR_DB: langchain_pgvector
       HISTORY_DB: langchain_history
     ports:
-      - "5433:5432"
+      - "5434:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U chatbot_user -d chatbot_db"]
       interval: 10s
@@ -79,7 +79,7 @@ services:
     image: redis:7-alpine
     container_name: chatbot-redis
     ports:
-      - "6380:6379"
+      - "6381:6379"
     volumes:
       - redis_data:/data
     healthcheck:
