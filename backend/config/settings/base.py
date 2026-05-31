@@ -95,9 +95,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 AUTH_USER_MODEL = "accounts.CustomUser"
 
-MASTER_ENCRYPTION_KEY = config(
-    "MASTER_ENCRYPTION_KEY", default="434567gfdvtr4563534145"
-)
+MASTER_ENCRYPTION_KEY = config("MASTER_ENCRYPTION_KEY", default="")
 # Current version of the encryption key
 ENCRYPTION_KEY_VERSION = 1
 
