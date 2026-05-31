@@ -102,8 +102,8 @@ npm run dev
 | **Frontend** | http://localhost:3000 | — |
 | **Backend API** | http://localhost:8000/api/v1/ | — |
 | **Django Admin** | http://localhost:8000/chatbot-admin/ | (your superuser) |
-| **PostgreSQL** | localhost:**5433** | chatbot_user / chatbot_pass |
-| **Redis** | localhost:**6380** | — |
+| **PostgreSQL** | localhost:**5434** | chatbot_user / chatbot_pass |
+| **Redis** | localhost:**6381** | — |
 
 ### 📚 Intern Onboarding
 
@@ -168,8 +168,8 @@ New to the project? Start here:
 │                            ▼                                  │
 │  ┌──────────────────┐ ┌───────────┐                          │
 │  │ PostgreSQL 17    │ │  Redis 7  │                          │
-│  │ + pgvector       │ │  :6380    │                          │
-│  │ :5433            │ │           │                          │
+│  │ + pgvector       │ │  :6381    │                          │
+│  │ :5434            │ │           │                          │
 │  │                  │ │ db0: cache│                          │
 │  │ • chatbot_db     │ │ db1: broker                         │
 │  │ • langchain_     │ │ db2: results                        │
