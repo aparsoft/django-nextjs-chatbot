@@ -37,8 +37,8 @@ api_v1_patterns: URLPatternsList = [
     ),
     # Accounts/Authentication endpoints
     path("accounts/", include(("accounts.api.urls", "accounts"), namespace="accounts")),
-    # Chatbot endpoints (add when chatbot/api/urls.py is ready)
-    # path("chatbot/", include(("chatbot.api.urls", "chatbot"), namespace="chatbot")),
+    # Chatbot endpoints
+    path("chatbot/", include(("chatbot.api.urls", "chatbot"), namespace="chatbot")),
 ]
 
 # Main URL patterns with versioning support
