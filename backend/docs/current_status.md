@@ -76,10 +76,10 @@
 
 ## OpenAPI Docs — ✅
 
-- `/api/v1/schema/` — JSON/YAML schema (17 endpoints, 0 errors)
+- `/api/v1/schema/` — JSON/YAML schema (21 endpoints, 0 errors)
 - `/api/v1/docs/` — Swagger UI with JWT auth support
 - `/api/v1/redoc/` — ReDoc documentation
-- Tags: Authentication (8), Users (9), User Contacts (5), Profile (1)
+- Tags: Authentication (11), Users (9), User Contacts (5), Profile (1)
 
 ---
 
@@ -98,7 +98,7 @@
 
 | App | Tests | Status |
 |-----|------:|--------|
-| `accounts` | 57 | ✅ All passing |
+| `accounts` | 99 | ✅ All passing |
 | `chatbot` | 0 | ❌ No tests |
 | `core` | 0 | ❌ No tests |
-| **Total** | **57** | |
+| **Total** | **99** | |
