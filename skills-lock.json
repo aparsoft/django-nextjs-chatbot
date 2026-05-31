@@ -19,6 +19,12 @@
       "skillPath": "skills/django-patterns/SKILL.md",
       "computedHash": "b1477691a59a4ed4cc4fa2180cec057537857455c537ad6d87f6c68340ab07f3"
     },
+    "docker-expert": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "skillPath": "skills/docker-expert/SKILL.md",
+      "computedHash": "0974b5f64fcd284c1bd662810e2388f7beb9be6784c597de4d0ad4213ccbd6af"
+    },
     "langchain-fundamentals": {
       "source": "langchain-ai/langchain-skills",
       "sourceType": "github",
