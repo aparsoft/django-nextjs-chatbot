@@ -133,7 +133,6 @@ DJANGO_PUBLIC_API_URL = config(
 # API Keys with defaults (for build process)
 OPENAI_API_KEY = config("OPENAI_API_KEY")
 TAVILY_API_KEY = config("TAVILY_API_KEY")
-ANTHROPIC_API_KEY = config("ANTHROPIC_API_KEY")
 
 
 # If you need separate keys for dev and prod, you can set them here
@@ -200,7 +199,9 @@ REDIS_URL = config("REDIS_URL", default="redis://localhost:6379/0")
 
 # Celery Settings
 CELERY_BROKER_URL = config("CELERY_BROKER_URL", default="redis://localhost:6379/1")
-CELERY_RESULT_BACKEND = config("CELERY_RESULT_BACKEND", default="redis://localhost:6379/2")
+CELERY_RESULT_BACKEND = config(
+    "CELERY_RESULT_BACKEND", default="redis://localhost:6379/2"
+)
 
 # Celery Configuration Options
 CELERY_TASK_TRACK_STARTED = True
