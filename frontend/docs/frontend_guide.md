@@ -1,4 +1,4 @@
-# Frontend Guide — ConvoInsight AI Chatbot
+# Frontend Guide — Django + Next.js AI Chatbot
 
 > A practical reference for how the Next.js frontend is structured, how to navigate it, and how to add things.
 
