@@ -48,7 +48,7 @@ class UserContactSerializer(serializers.ModelSerializer):
             "availability",
         ]
 
-    def get_country_name(self, obj):
+    def get_country_name(self, obj) -> str | None:
         if obj.country:
             return obj.country.name
         return None
