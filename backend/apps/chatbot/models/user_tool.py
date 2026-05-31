@@ -1,5 +1,13 @@
 """
 User Tool Model - Custom tools/functions users can enable.
+
+Tools are defined in code (see TOOL_REGISTRY below) and users can
+enable/disable them with per-user configuration.
+
+AvailableTool was intentionally removed — for an intern onboarding project,
+tool definitions belong in code (management commands / constants), not a
+separate DB table.  This keeps the model count down and teaches the
+"code-first configuration" pattern.
 """
 
 from django.db import models
@@ -8,12 +16,58 @@ from django.utils.translation import gettext_lazy as _
 from core.models import TimestampedModel
 
 
+# ---------------------------------------------------------------------------
+# Tool Registry — single source of truth for available tools
+# ---------------------------------------------------------------------------
+# Add new tools here; a management command can seed UserTool rows from this.
+
+TOOL_REGISTRY = {
+    "web_search": {
+        "display_name": "Web Search",
+        "description": "Search the web for up-to-date information using Tavily.",
+        "category": "search",
+        "icon": "🔍",
+        "default_config": {"max_results": 5},
+    },
+    "code_executor": {
+        "display_name": "Code Executor",
+        "description": "Execute Python code snippets in a sandboxed environment.",
+        "category": "code",
+        "icon": "💻",
+        "default_config": {"timeout_seconds": 30},
+    },
+    "calculator": {
+        "display_name": "Calculator",
+        "description": "Perform mathematical calculations and conversions.",
+        "category": "utility",
+        "icon": "🧮",
+        "default_config": {},
+    },
+    "document_retriever": {
+        "display_name": "Document Retriever",
+        "description": "Search through your uploaded documents using semantic search.",
+        "category": "search",
+        "icon": "📄",
+        "default_config": {"top_k": 5},
+    },
+}
+
+TOOL_CATEGORY_CHOICES = [
+    ("search", "Search & Retrieval"),
+    ("code", "Code Execution"),
+    ("data", "Data Processing"),
+    ("integration", "External Integration"),
+    ("utility", "Utility"),
+    ("custom", "Custom"),
+]
+
+
 class UserTool(TimestampedModel):
     """
     Track which tools/functions users have enabled.
 
-    Tools are defined in code but users can enable/disable them
-    and configure their settings.
+    Tools are defined in TOOL_REGISTRY but users can enable/disable them
+    and configure their settings independently.
     """
 
     # User association
@@ -52,15 +106,15 @@ class UserTool(TimestampedModel):
     category = models.CharField(
         max_length=50,
         default="general",
-        choices=[
-            ("search", "Search & Retrieval"),
-            ("code", "Code Execution"),
-            ("data", "Data Processing"),
-            ("integration", "External Integration"),
-            ("utility", "Utility"),
-            ("custom", "Custom"),
-        ],
+        choices=TOOL_CATEGORY_CHOICES,
         help_text=_("Tool category"),
+    )
+
+    icon = models.CharField(
+        max_length=10,
+        blank=True,
+        null=True,
+        help_text=_("Emoji or icon for UI display"),
     )
 
     # Usage tracking
@@ -126,6 +180,20 @@ class UserTool(TimestampedModel):
     def __str__(self):
         return f"{self.user.email} - {self.tool_display_name}"
 
+    # ------------------------------------------------------------------
+    # Instance methods — fatty model, thin viewset
+    # ------------------------------------------------------------------
+
+    def activate(self):
+        """Enable this tool for the user."""
+        self.is_enabled = True
+        self.save(update_fields=["is_enabled"])
+
+    def deactivate(self):
+        """Disable this tool for the user."""
+        self.is_enabled = False
+        self.save(update_fields=["is_enabled"])
+
     def increment_usage(self):
         """Increment usage count and update last used timestamp."""
         from django.utils import timezone
@@ -133,6 +201,50 @@ class UserTool(TimestampedModel):
         self.usage_count += 1
         self.last_used_at = timezone.now()
         self.save(update_fields=["usage_count", "last_used_at"])
+
+    def reset_usage(self):
+        """Reset usage counter (e.g., after rate-limit window resets)."""
+        self.usage_count = 0
+        self.save(update_fields=["usage_count"])
+
+    def approve(self, approved_by_user):
+        """Approve this tool for use by an admin."""
+        from django.utils import timezone
+
+        self.is_approved = True
+        self.approved_by = approved_by_user
+        self.approved_at = timezone.now()
+        self.save(update_fields=["is_approved", "approved_by", "approved_at"])
+
+    def get_effective_config(self):
+        """
+        Return merged configuration: TOOL_REGISTRY defaults + user overrides.
+
+        User overrides take precedence so interns can see how JSON config
+        merging works in practice.
+        """
+        registry_entry = TOOL_REGISTRY.get(self.tool_name, {})
+        defaults = registry_entry.get("default_config", {})
+        merged = {**defaults, **self.configuration}
+        return merged
+
+    def get_display_info(self):
+        """
+        Return a dict of display-friendly information for the frontend.
+
+        Useful in serializers — just call `tool.get_display_info()` instead
+        of building the dict in the viewset.
+        """
+        return {
+            "tool_name": self.tool_name,
+            "display_name": self.tool_display_name,
+            "description": self.description,
+            "category": self.get_category_display(),
+            "icon": self.icon,
+            "is_enabled": self.is_enabled,
+            "usage_count": self.usage_count,
+            "last_used_at": self.last_used_at.isoformat() if self.last_used_at else None,
+        }
 
     def check_rate_limit(self):
         """
@@ -184,6 +296,10 @@ class UserTool(TimestampedModel):
             "limit": self.rate_limit,
         }
 
+    # ------------------------------------------------------------------
+    # Class methods / queryset helpers
+    # ------------------------------------------------------------------
+
     @classmethod
     def get_user_tools(cls, user, enabled_only=True):
         """Get all tools for a user."""
@@ -195,86 +311,109 @@ class UserTool(TimestampedModel):
         return queryset
 
     @classmethod
+    def get_enabled_for_user(cls, user):
+        """Get enabled + approved tools for a user (ready to use with LangGraph)."""
+        return list(
+            cls.objects.filter(user=user, is_enabled=True, is_approved=True)
+        )
+
+    @classmethod
     def get_tool_config(cls, user, tool_name):
-        """Get configuration for a specific tool."""
+        """Get merged configuration for a specific tool."""
         try:
             tool = cls.objects.get(user=user, tool_name=tool_name)
-            return tool.configuration
+            return tool.get_effective_config()
         except cls.DoesNotExist:
-            return {}
+            # Fall back to registry defaults
+            return TOOL_REGISTRY.get(tool_name, {}).get("default_config", {})
 
+    @classmethod
+    def enable_tool(cls, user, tool_name, configuration=None):
+        """
+        Enable a tool from the registry for a user.
 
-class AvailableTool(TimestampedModel):
-    """
-    Catalog of available tools that can be enabled by users.
+        Args:
+            user: The user
+            tool_name: Must exist in TOOL_REGISTRY
+            configuration: Optional user overrides
 
-    This is like a "marketplace" of tools. Admins can add new tools here,
-    and users can enable them via UserTool.
-    """
+        Returns:
+            UserTool instance
 
-    # Tool identification
-    tool_name = models.CharField(
-        max_length=100,
-        unique=True,
-        help_text=_("Internal tool name (matches code implementation)"),
-    )
+        Raises:
+            ValueError: If tool_name not in TOOL_REGISTRY
+        """
+        if tool_name not in TOOL_REGISTRY:
+            raise ValueError(
+                f"Unknown tool '{tool_name}'. "
+                f"Available: {', '.join(TOOL_REGISTRY.keys())}"
+            )
 
-    display_name = models.CharField(max_length=255, help_text=_("Human-readable name"))
+        registry_entry = TOOL_REGISTRY[tool_name]
 
-    # Tool information
-    description = models.TextField(
-        help_text=_("Detailed description of tool functionality")
-    )
+        user_tool, created = cls.objects.get_or_create(
+            user=user,
+            tool_name=tool_name,
+            defaults={
+                "tool_display_name": registry_entry["display_name"],
+                "description": registry_entry["description"],
+                "category": registry_entry["category"],
+                "icon": registry_entry.get("icon", ""),
+                "is_enabled": True,
+                "configuration": configuration or registry_entry.get("default_config", {}),
+            },
+        )
 
-    icon = models.CharField(
-        max_length=50, blank=True, null=True, help_text=_("Icon class or emoji for UI")
-    )
+        if not created:
+            user_tool.is_enabled = True
+            if configuration:
+                user_tool.configuration = configuration
+            user_tool.save()
 
-    category = models.CharField(
-        max_length=50,
-        default="general",
-        choices=[
-            ("search", "Search & Retrieval"),
-            ("code", "Code Execution"),
-            ("data", "Data Processing"),
-            ("integration", "External Integration"),
-            ("utility", "Utility"),
-            ("custom", "Custom"),
-        ],
-        help_text=_("Tool category"),
-    )
+        return user_tool
 
-    # Availability
-    is_active = models.BooleanField(
-        default=True, help_text=_("Whether this tool is available for use")
-    )
+    @classmethod
+    def disable_tool(cls, user, tool_name):
+        """Disable a tool for a user."""
+        cls.objects.filter(user=user, tool_name=tool_name).update(is_enabled=False)
 
-    is_public = models.BooleanField(
-        default=True, help_text=_("Whether all users can access this tool")
-    )
+    @classmethod
+    def bulk_enable(cls, user, tool_names):
+        """
+        Enable multiple tools at once.
 
-    requires_admin_approval = models.BooleanField(
-        default=False, help_text=_("Whether enabling this tool requires admin approval")
-    )
+        Args:
+            user: The user
+            tool_names: List of tool names from TOOL_REGISTRY
 
-    # Configuration schema
-    config_schema = models.JSONField(
-        default=dict, blank=True, help_text=_("JSON schema for tool configuration")
-    )
+        Returns:
+            List of UserTool instances
+        """
+        enabled = []
+        for tool_name in tool_names:
+            tool = cls.enable_tool(user, tool_name)
+            enabled.append(tool)
+        return enabled
 
-    default_config = models.JSONField(
-        default=dict, blank=True, help_text=_("Default configuration values")
-    )
+    @classmethod
+    def seed_all_tools(cls, user):
+        """
+        Create UserTool entries for every tool in TOOL_REGISTRY.
 
-    # Usage
-    total_users = models.IntegerField(
-        default=0, help_text=_("Number of users who have enabled this tool")
-    )
-
-    class Meta:
-        verbose_name = _("Available Tool")
-        verbose_name_plural = _("Available Tools")
-        ordering = ["category", "display_name"]
-
-    def __str__(self):
-        return self.display_name
+        Useful in a management command or post-registration signal.
+        """
+        seeded = []
+        for tool_name in TOOL_REGISTRY:
+            tool, created = cls.objects.get_or_create(
+                user=user,
+                tool_name=tool_name,
+                defaults={
+                    "tool_display_name": TOOL_REGISTRY[tool_name]["display_name"],
+                    "description": TOOL_REGISTRY[tool_name]["description"],
+                    "category": TOOL_REGISTRY[tool_name]["category"],
+                    "icon": TOOL_REGISTRY[tool_name].get("icon", ""),
+                    "is_enabled": False,  # Disabled by default — user opts in
+                },
+            )
+            seeded.append((tool, created))
+        return seeded
