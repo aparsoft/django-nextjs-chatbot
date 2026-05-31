@@ -52,16 +52,6 @@ DATABASES = {
     }
 }
 
-PGVECTOR_CONNECTION_STRING = config("PGVECTOR_CONNECTION_STRING")
-PG_CHECKPOINT_URI = config("PG_CHECKPOINT_URI")
-
-# Fix the encoding issue - add these lines
-if "\\x3a" in PGVECTOR_CONNECTION_STRING:
-    PGVECTOR_CONNECTION_STRING = PGVECTOR_CONNECTION_STRING.replace("\\x3a", ":")
-
-if "\\x3a" in PG_CHECKPOINT_URI:
-    PG_CHECKPOINT_URI = PG_CHECKPOINT_URI.replace("\\x3a", ":")
-
 STATIC_URL = "/static/"
 STATICFILES_DIRS = [
     BASE_DIR / "static",
@@ -130,9 +120,18 @@ DJANGO_PUBLIC_API_URL = config(
 )
 
 
-# API Keys with defaults (for build process)
-OPENAI_API_KEY = config("OPENAI_API_KEY")
-TAVILY_API_KEY = config("TAVILY_API_KEY")
+# API Keys
+# Export keys from .env into os.environ so that third-party libraries
+# (langchain, langchain_tavily, etc.) that read os.environ directly
+# can pick them up.  python-decouple reads .env but does NOT export.
+for _key in (
+    "OPENAI_API_KEY",
+    "HUGGINGFACEHUB_API_TOKEN",
+    "TAVILY_API_KEY",
+    "DEEPGRAM_API_KEY",
+):
+    if _key not in os.environ:
+        os.environ[_key] = config(_key, default="")
 
 
 # If you need separate keys for dev and prod, you can set them here
@@ -157,6 +156,41 @@ CSRF_TRUSTED_ORIGINS = [
     "http://localhost:8000",
     "http://docserve.localhost:8000",
 ]
+
+PGVECTOR_CONNECTION_STRING = config(
+    "PGVECTOR_CONNECTION_STRING",
+    default="postgresql+psycopg://user:password@localhost:5432/vector_db",
+)
+PG_CHECKPOINT_URI = config(
+    "PG_CHECKPOINT_URI",
+    default="postgresql://user:password@localhost:5432/checkpoint_db",
+)
+
+# Fix the encoding issue - add these lines
+if "\\x3a" in PGVECTOR_CONNECTION_STRING:
+    PGVECTOR_CONNECTION_STRING = PGVECTOR_CONNECTION_STRING.replace("\\x3a", ":")
+
+
+if "\\x3a" in PG_CHECKPOINT_URI:
+    PG_CHECKPOINT_URI = PG_CHECKPOINT_URI.replace("\\x3a", ":")
+
+# Normalize PG_CHECKPOINT_URI for psycopg compatibility
+# SQLAlchemy uses 'postgresql+psycopg://' but raw psycopg expects 'postgresql://'
+# AsyncPostgresSaver.from_conn_string() from langgraph uses raw psycopg
+# NOTE: PGVECTOR_CONNECTION_STRING must KEEP 'postgresql+psycopg://' for SQLAlchemy/langchain-postgres
+if PG_CHECKPOINT_URI.startswith("postgresql+psycopg://"):
+    PG_CHECKPOINT_URI = PG_CHECKPOINT_URI.replace(
+        "postgresql+psycopg://", "postgresql://"
+    )
+
+# Repair degenerate query strings like '?sslmode' (key with no value) which psycopg
+# rejects by treating the entire URL as a single connection option. Default to
+# sslmode=require which is what managed Postgres (DigitalOcean) needs.
+if PG_CHECKPOINT_URI.endswith("?sslmode") or "?sslmode&" in PG_CHECKPOINT_URI:
+    PG_CHECKPOINT_URI = PG_CHECKPOINT_URI.replace("?sslmode", "?sslmode=require")
+if PG_CHECKPOINT_URI.endswith("&sslmode"):
+    PG_CHECKPOINT_URI = PG_CHECKPOINT_URI[: -len("&sslmode")] + "&sslmode=require"
+
 
 CSRF_COOKIE_SECURE = False  # Set to True in production with HTTPS
 CSRF_COOKIE_HTTPONLY = False  # Set to True in production
