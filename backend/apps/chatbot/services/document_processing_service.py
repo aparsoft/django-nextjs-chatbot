@@ -123,9 +123,9 @@ class DocumentProcessingService:
                 docs = loader.load()
                 return docs[0].page_content
 
-            # Markdown
+            # Markdown (plain-text loader handles .md fine)
             elif file_type == "text/markdown":
-                loader = UnstructuredMarkdownLoader(file_path)
+                loader = TextLoader(file_path)
                 docs = loader.load()
                 return docs[0].page_content
 
