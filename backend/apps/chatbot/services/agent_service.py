@@ -52,7 +52,7 @@ from langchain_core.tools import tool as lc_tool
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.postgres import PostgresSaver
 from psycopg.rows import dict_row
-from psycopg_pool import ConnectionPool
+from psycopg_pool import ConnectionPool, AsyncConnectionPool
 
 from ..models import ChatSession
 from .summarization_service import SummarizationService
@@ -226,26 +226,40 @@ def load_tools_for_user(user) -> List:
 
 
 # ---------------------------------------------------------------------------
-# Checkpointer singleton (connection-pool backed)
+# Checkpointer singletons (sync + async, connection-pool backed)
 # ---------------------------------------------------------------------------
-# Using a psycopg ConnectionPool instead of a single Connection prevents
-# "the connection is closed" errors.  A single connection can be dropped by
-# the server (idle timeout, network hiccup, etc.) and never recovers.
-# A pool automatically replaces broken connections.
+# Using psycopg ConnectionPool / AsyncConnectionPool instead of a single
+# Connection prevents "the connection is closed" errors.  A single
+# connection can be dropped by the server (idle timeout, network hiccup,
+# etc.) and never recovers.  A pool automatically replaces broken
+# connections.
+#
+# Two singletons are provided:
+#   get_checkpointer()        → PostgresSaver (sync, for Django views/Celery)
+#   get_async_checkpointer()  → AsyncPostgresSaver (async, for WebSocket consumers)
 
 from psycopg.rows import dict_row
-from psycopg_pool import ConnectionPool
+from psycopg_pool import ConnectionPool, AsyncConnectionPool
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
 _pool: Optional[ConnectionPool] = None
 _checkpointer: Optional[PostgresSaver] = None
 
+_async_pool: Optional[AsyncConnectionPool] = None
+_async_checkpointer: Optional["AsyncPostgresSaver"] = None
+
 
 def get_checkpointer() -> PostgresSaver:
     """
-    Return a ``PostgresSaver`` backed by a ``ConnectionPool``.
+    Return a sync ``PostgresSaver`` backed by a ``ConnectionPool``.
 
     The pool handles reconnection automatically, so this is safe for
     long-running processes (Django runserver, Celery workers, etc.).
+
+    Use this for:
+        - Django REST API views (sync)
+        - Management commands (sync)
+        - Celery tasks (sync)
     """
     global _pool, _checkpointer
     if _checkpointer is None:
@@ -260,6 +274,41 @@ def get_checkpointer() -> PostgresSaver:
         _checkpointer.setup()
         logger.info("PostgresSaver checkpointer initialised (pool-backed)")
     return _checkpointer
+
+
+async def get_async_checkpointer():
+    """
+    Return an async ``AsyncPostgresSaver`` backed by an ``AsyncConnectionPool``.
+
+    The async pool handles reconnection automatically, just like the sync
+    version.  This is safe for long-running async processes (Django
+    Channels / WebSocket consumers, ASGI apps, etc.).
+
+    Use this for:
+        - WebSocket consumers (async)
+        - ASGI views (async)
+        - Any async code that needs LangGraph checkpointing
+
+    Returns:
+        AsyncPostgresSaver: A pool-backed async checkpointer instance.
+    """
+    global _async_pool, _async_checkpointer
+    if _async_checkpointer is None:
+        from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+
+        _async_pool = AsyncConnectionPool(
+            conninfo=settings.PG_CHECKPOINT_URI,
+            min_size=2,
+            max_size=10,
+            kwargs={"autocommit": True, "row_factory": dict_row},
+            open=True,
+        )
+        # Wait for the pool to open connections
+        await _async_pool.open()
+        _async_checkpointer = AsyncPostgresSaver(_async_pool)
+        await _async_checkpointer.setup()
+        logger.info("AsyncPostgresSaver checkpointer initialised (pool-backed)")
+    return _async_checkpointer
 
 
 # ---------------------------------------------------------------------------
