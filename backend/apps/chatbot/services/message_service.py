@@ -22,7 +22,6 @@ Usage:
 
 from typing import List, Dict, Any, Optional
 from uuid import UUID
-from django.conf import settings
 
 from langchain_core.messages import (
     HumanMessage,
@@ -42,15 +41,14 @@ class MessageService:
     @staticmethod
     def _get_checkpointer() -> PostgresSaver:
         """
-        Get PostgresSaver instance for checkpointing.
+        Get the shared pool-backed PostgresSaver instance.
 
-        Returns:
-            PostgresSaver instance connected to PG_CHECKPOINT_URI
+        Delegates to ``AgentService.get_checkpointer()`` which maintains
+        a singleton ``ConnectionPool`` — this avoids "the connection is
+        closed" errors that occur when a single connection drops.
         """
-        checkpointer = PostgresSaver.from_conn_string(settings.PG_CHECKPOINT_URI)
-        # Ensure tables exist
-        checkpointer.setup()
-        return checkpointer
+        from .agent_service import get_checkpointer
+        return get_checkpointer()
 
     @staticmethod
     def get_conversation_history(
