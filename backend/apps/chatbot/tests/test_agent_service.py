@@ -31,6 +31,7 @@ from unittest.mock import MagicMock, patch
 from django.test import TestCase
 from django.core.management import call_command
 from django.contrib.auth import get_user_model
+from django.conf import settings
 from io import StringIO
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -600,31 +601,140 @@ class TestCalculatorTool(TestCase):
 
 
 class TestCheckpointer(TestCase):
-    """Test the checkpointer singleton."""
+    """Test the pool-backed checkpointer singleton.
 
-    def test_get_checkpointer_enters_context_manager(self):
-        """get_checkpointer enters the from_conn_string context manager."""
+    The checkpointer uses a psycopg ConnectionPool instead of a single
+    Connection.  This prevents 'the connection is closed' errors that
+    occur when a single idle connection is dropped by the server.
+    """
+
+    def setUp(self):
+        """Reset the singleton before each test."""
         import chatbot.services.agent_service as mod
-        mod._checkpointer = None  # reset singleton
+        mod._pool = None
+        mod._checkpointer = None
 
-        mock_ctx = MagicMock()
-        mock_instance = MagicMock()
-        mock_ctx.__enter__ = MagicMock(return_value=mock_instance)
-        mock_ctx.__exit__ = MagicMock(return_value=False)
+    def tearDown(self):
+        """Reset the singleton after each test."""
+        import chatbot.services.agent_service as mod
+        mod._pool = None
+        mod._checkpointer = None
 
+    def test_get_checkpointer_creates_pool_and_saver(self):
+        """get_checkpointer creates a ConnectionPool and PostgresSaver on first call."""
         with patch(
+            "chatbot.services.agent_service.ConnectionPool"
+        ) as MockPool, patch(
             "chatbot.services.agent_service.PostgresSaver"
         ) as MockSaver:
-            MockSaver.from_conn_string.return_value = mock_ctx
+            mock_pool_instance = MagicMock()
+            MockPool.return_value = mock_pool_instance
+            mock_saver_instance = MagicMock()
+            MockSaver.return_value = mock_saver_instance
 
             result = get_checkpointer()
 
-            self.assertEqual(result, mock_instance)
-            mock_ctx.__enter__.assert_called_once()
-            mock_instance.setup.assert_called_once()
+            # Verify ConnectionPool was created with correct kwargs
+            MockPool.assert_called_once()
+            pool_call_kwargs = MockPool.call_args
+            self.assertEqual(pool_call_kwargs[1]["conninfo"], settings.PG_CHECKPOINT_URI)
+            self.assertEqual(pool_call_kwargs[1]["min_size"], 2)
+            self.assertEqual(pool_call_kwargs[1]["max_size"], 10)
+            self.assertTrue(pool_call_kwargs[1]["kwargs"]["autocommit"])
+            from psycopg.rows import dict_row
+            self.assertEqual(pool_call_kwargs[1]["kwargs"]["row_factory"], dict_row)
 
-        # Cleanup
-        mod._checkpointer = None
+            # Verify PostgresSaver was created with the pool
+            MockSaver.assert_called_once_with(mock_pool_instance)
+
+            # Verify setup() was called
+            mock_saver_instance.setup.assert_called_once()
+
+            # Verify the returned checkpointer is the mock saver
+            self.assertEqual(result, mock_saver_instance)
+
+    def test_get_checkpointer_returns_singleton(self):
+        """Subsequent calls to get_checkpointer return the same instance."""
+        with patch(
+            "chatbot.services.agent_service.ConnectionPool"
+        ), patch(
+            "chatbot.services.agent_service.PostgresSaver"
+        ) as MockSaver:
+            mock_saver = MagicMock()
+            MockSaver.return_value = mock_saver
+
+            result1 = get_checkpointer()
+            result2 = get_checkpointer()
+
+            # PostgresSaver constructor called only once (singleton)
+            self.assertEqual(MockSaver.call_count, 1)
+            self.assertEqual(result1, result2)
+
+    def test_get_checkpointer_pool_kwargs_include_dict_row(self):
+        """The ConnectionPool must use dict_row to avoid TypeError on column access."""
+        with patch(
+            "chatbot.services.agent_service.ConnectionPool"
+        ) as MockPool, patch(
+            "chatbot.services.agent_service.PostgresSaver"
+        ):
+            MockPool.return_value = MagicMock()
+
+            get_checkpointer()
+
+            call_kwargs = MockPool.call_args[1]
+            from psycopg.rows import dict_row
+            self.assertEqual(call_kwargs["kwargs"]["row_factory"], dict_row)
+
+    def test_get_checkpointer_pool_kwargs_include_autocommit(self):
+        """The ConnectionPool must use autocommit=True for schema setup to persist."""
+        with patch(
+            "chatbot.services.agent_service.ConnectionPool"
+        ) as MockPool, patch(
+            "chatbot.services.agent_service.PostgresSaver"
+        ):
+            MockPool.return_value = MagicMock()
+
+            get_checkpointer()
+
+            call_kwargs = MockPool.call_args[1]
+            self.assertTrue(call_kwargs["kwargs"]["autocommit"])
+
+    def test_get_checkpointer_setup_called_once(self):
+        """checkpointer.setup() is called exactly once during initialization."""
+        with patch(
+            "chatbot.services.agent_service.ConnectionPool"
+        ), patch(
+            "chatbot.services.agent_service.PostgresSaver"
+        ) as MockSaver:
+            mock_saver = MagicMock()
+            MockSaver.return_value = mock_saver
+
+            get_checkpointer()
+
+            mock_saver.setup.assert_called_once()
+
+    def test_reset_singleton_allows_reinitialization(self):
+        """Resetting the singleton globals allows reinitialization."""
+        import chatbot.services.agent_service as mod
+
+        with patch(
+            "chatbot.services.agent_service.ConnectionPool"
+        ), patch(
+            "chatbot.services.agent_service.PostgresSaver"
+        ) as MockSaver:
+            MockSaver.return_value = MagicMock()
+
+            # First call
+            get_checkpointer()
+            first_call_count = MockSaver.call_count
+
+            # Reset singleton
+            mod._pool = None
+            mod._checkpointer = None
+
+            # Second call — should create a new instance
+            get_checkpointer()
+            self.assertEqual(MockSaver.call_count, first_call_count + 1)
 
 
 # ---------------------------------------------------------------------------
