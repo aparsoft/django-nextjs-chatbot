@@ -55,23 +55,28 @@ from ..serializers import (
 
 @extend_schema_view(
     list=extend_schema(
-        tags=["Chat Sessions"], summary="List chat sessions",
+        tags=["Chat Sessions"],
+        summary="List chat sessions",
         description="Return the authenticated user's chat sessions.",
     ),
     retrieve=extend_schema(
-        tags=["Chat Sessions"], summary="Retrieve chat session",
+        tags=["Chat Sessions"],
+        summary="Retrieve chat session",
         description="Get full details for a single chat session.",
     ),
     create=extend_schema(
-        tags=["Chat Sessions"], summary="Create chat session",
+        tags=["Chat Sessions"],
+        summary="Create chat session",
         description="Start a new conversation. Defaults come from user preferences.",
     ),
     partial_update=extend_schema(
-        tags=["Chat Sessions"], summary="Update chat session",
+        tags=["Chat Sessions"],
+        summary="Update chat session",
         description="Update session title, settings, or status.",
     ),
     destroy=extend_schema(
-        tags=["Chat Sessions"], summary="Delete chat session",
+        tags=["Chat Sessions"],
+        summary="Delete chat session",
         description="Soft-delete the session (archive + deactivate).",
     ),
 )
