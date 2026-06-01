@@ -45,12 +45,15 @@
 | Document processing | ✅ | File upload → text extraction → chunking → embedding pipeline |
 | Message service | ✅ | LangGraph `PostgresSaver` checkpointing |
 | Summarization service | ✅ | LangGraph node + `pre_model_hook` for `create_react_agent` |
+| Agent service | ✅ | `create_agent` (langchain v1) + `SummarizationMiddleware` + tool loading + `ChatAgentOrchestrator` |
+| WebSocket consumer | ✅ | `ChatConsumer` for real-time chat via `ws/chat/<session_id>/` |
+| Management command | ✅ | `run_chat` — interactive CLI chatbot for testing and intern onboarding |
 | Model tests | ✅ | 66 tests across 8 test classes with shared `ChatbotTestMixin` |
+| Agent tests | ✅ | 49 tests: orchestrator, middleware, tools, checkpointer, management command |
 | API/serializer/service tests | ❌ | No viewset, serializer, or service-level tests |
 | Admin registration | ❌ | `admin/__init__.py` is empty — none of the 8 models registered |
-| Management commands | ❌ | No commands written (needed for tool seeding) |
 | Celery tasks | ❌ | No `tasks.py` files exist — TODOs in `UserDocumentViewSet.process()` and `retry()` |
-| Tool loading | ⚠️ | `ToolService.get_tool_instances()` returns `[]` — LangChain tool loading not implemented |
+| Tool loading | ⚠️ | Calculator + document_retriever implemented; web_search & code_executor still stubs |
 
 ### Chatbot API Endpoints
 
@@ -106,9 +109,9 @@ All mounted at `/api/v1/chatbot/`:
 | App | Tests | Status |
 |-----|------:|--------|
 | `accounts` | 99 | ✅ All passing (models + serializers + API viewsets + auth views) |
-| `chatbot` | 66 | ✅ Model tests passing; ❌ No API/serializer/service tests |
+| `chatbot` | 115 | ✅ Model (66) + Agent service (49) tests passing; ❌ No API/serializer tests |
 | `core` | 0 | ❌ No tests |
-| **Total** | **165** | |
+| **Total** | **214** | |
 
 ---
 
@@ -116,16 +119,16 @@ All mounted at `/api/v1/chatbot/`:
 
 | Location | Description |
 |----------|-------------|
-| `chatbot/services/tool_service.py` | `get_tool_instances()` returns `[]` — needs LangChain tool loading |
 | `chatbot/api/views/user_document_views.py` | `process()` and `retry()` need Celery task integration |
 | `chatbot/services/chat_session_service.py` | `hard_delete_session()` needs LangGraph checkpoint cleanup |
+| `chatbot/services/agent_service.py` | `web_search` and `code_executor` tools are stubs — need Tavily/sandbox integration |
 
 ---
 
 ## Priority Checklist (What to Build Next)
 
 1. **Chatbot API tests** — ViewSet tests, serializer tests, service-level tests
-2. **LangGraph agent graph** — Build the actual `create_react_agent` graph using the services (VectorStorage, MessageService, SummarizationService, ToolService)
+2. **Remaining tools** — Implement `web_search` (Tavily) and `code_executor` tools
 3. **Celery tasks** — `process_document_task`, `cleanup_old_sessions_task`, etc.
 4. **Admin registration** — Register all 8 chatbot models in Django admin
 5. **Management commands** — `seed_tools` to populate `TOOL_REGISTRY` defaults
