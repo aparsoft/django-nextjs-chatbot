@@ -46,8 +46,8 @@ python manage.py test accounts.tests chatbot.tests --settings=config.settings.te
 | `test_models.py` | 58 | Model creation, properties, state transitions, class methods, constraints across all 8 models |
 | `test_serializers.py` | 34 | Serializer validation: create, update, read, field checks for all 8 model serializer sets |
 | `test_api_viewsets.py` | 55 | ViewSet CRUD, custom actions, permissions, swagger_fake_view guard for all 8 ViewSets |
-| `test_agent_service.py` | 49 | LangGraph agent service: orchestrator, middleware, tool loading, calculator, checkpointer, management command |
-| **Total** | **~196** | |
+| `test_agent_service.py` | 54 | LangGraph agent service: orchestrator, middleware, tool loading, calculator, checkpointer (pool-backed), management command |
+| **Total** | **~201** | |
 
 ---
 
