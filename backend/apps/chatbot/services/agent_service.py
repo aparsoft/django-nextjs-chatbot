@@ -51,6 +51,8 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langchain_core.tools import tool as lc_tool
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.postgres import PostgresSaver
+from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool
 
 from ..models import ChatSession
 from .summarization_service import SummarizationService
@@ -224,26 +226,39 @@ def load_tools_for_user(user) -> List:
 
 
 # ---------------------------------------------------------------------------
-# Checkpointer singleton
+# Checkpointer singleton (connection-pool backed)
 # ---------------------------------------------------------------------------
+# Using a psycopg ConnectionPool instead of a single Connection prevents
+# "the connection is closed" errors.  A single connection can be dropped by
+# the server (idle timeout, network hiccup, etc.) and never recovers.
+# A pool automatically replaces broken connections.
 
+from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool
+
+_pool: Optional[ConnectionPool] = None
 _checkpointer: Optional[PostgresSaver] = None
 
 
 def get_checkpointer() -> PostgresSaver:
     """
-    Return a ``PostgresSaver`` connected to ``settings.PG_CHECKPOINT_URI``.
+    Return a ``PostgresSaver`` backed by a ``ConnectionPool``.
 
-    ``PostgresSaver.from_conn_string()`` returns a context manager
-    (iterator).  We enter it once and cache the connected instance for
-    the lifetime of the process.
+    The pool handles reconnection automatically, so this is safe for
+    long-running processes (Django runserver, Celery workers, etc.).
     """
-    global _checkpointer
+    global _pool, _checkpointer
     if _checkpointer is None:
-        ctx = PostgresSaver.from_conn_string(settings.PG_CHECKPOINT_URI)
-        _checkpointer = ctx.__enter__()
+        _pool = ConnectionPool(
+            conninfo=settings.PG_CHECKPOINT_URI,
+            min_size=2,
+            max_size=10,
+            kwargs={"autocommit": True, "row_factory": dict_row},
+            open=True,
+        )
+        _checkpointer = PostgresSaver(_pool)
         _checkpointer.setup()
-        logger.info("PostgresSaver checkpointer initialised")
+        logger.info("PostgresSaver checkpointer initialised (pool-backed)")
     return _checkpointer
 
 
@@ -358,6 +373,7 @@ class ChatAgentOrchestrator:
             {"messages": [HumanMessage(content=user_message)]},
             config=self.config,
         )
+        logger.debug("Agent invoke result: %s", result)
 
         # Extract the last AI message as the response
         ai_response = ""
@@ -365,7 +381,7 @@ class ChatAgentOrchestrator:
             if isinstance(msg, AIMessage):
                 ai_response = msg.content
                 break
-
+        logger.info("Agent response length: %d", len(ai_response))
         # Update session analytics
         self.session.update_analytics(message_count=2)  # human + assistant
 
