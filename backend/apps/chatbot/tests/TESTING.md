@@ -152,6 +152,53 @@ resp.data["id"]
 
 ---
 
+## Agent Service Test Coverage
+
+| Component | Tests | Scenarios |
+|-----------|-------|-----------|
+| **SummarizationMiddleware** | 8 | Compression threshold, no-compression-below-threshold, custom config, disabled, empty messages, system message preservation |
+| **ChatAgentOrchestrator** | 10 | Construction, system prompt, tool loading, invoke, stream, history, analytics, auto-title |
+| **AgentService façade** | 3 | chat(), chat_stream(), create_orchestrator() |
+| **Tool loading** | 4 | calculator, document_retriever, unimplemented tools, no tools enabled |
+| **Checkpointer** | 6 | Pool creation, singleton pattern, dict_row kwarg, autocommit kwarg, setup() called once, reset & reinitialize |
+| **run_chat command** | 7 | Single message, auto-create session, history, empty history, invalid user, invalid session, default superuser |
+
+---
+
+## Checkpointer Tests (`TestCheckpointer`)
+
+The checkpointer tests verify the **pool-backed singleton** pattern used for `PostgresSaver`. All tests mock `ConnectionPool` and `PostgresSaver` — no real database connection is needed.
+
+### What they test
+
+| Test | What it verifies |
+|------|-------------------|
+| `test_get_checkpointer_creates_pool_and_saver` | First call creates a `ConnectionPool` with correct `conninfo`, `min_size`, `max_size`, `autocommit`, and `dict_row`, then wraps it in a `PostgresSaver` |
+| `test_get_checkpointer_returns_singleton` | Second call returns the same instance — no duplicate pool or saver created |
+| `test_get_checkpointer_pool_kwargs_include_dict_row` | The `row_factory=dict_row` kwarg is always present (prevents `TypeError: tuple indices must be integers`) |
+| `test_get_checkpointer_pool_kwargs_include_autocommit` | The `autocommit=True` kwarg is always present (prevents schema setup rollbacks) |
+| `test_get_checkpointer_setup_called_once` | `checkpointer.setup()` is called exactly once during initialization |
+| `test_reset_singleton_allows_reinitialization` | Resetting `_pool` and `_checkpointer` to `None` allows a fresh pool to be created |
+
+### Why these tests matter
+
+The checkpointer is the **most common source of production bugs** in LangGraph deployments. The three most frequent issues are:
+
+1. **"the connection is closed"** — caused by using a single `Connection` instead of a `ConnectionPool`. A single connection cannot recover after being dropped by the server (idle timeout, network hiccup, restart). The pool replaces broken connections automatically.
+
+2. **`TypeError: tuple indices must be integers or slices, not str`** — caused by missing `row_factory=dict_row`. The checkpointer accesses columns by name, but the default `tuple_row` returns positional tuples.
+
+3. **Schema changes disappear across restarts** — caused by missing `autocommit=True`. Without it, the `setup()` transaction is rolled back when the connection closes.
+
+### Running just the checkpointer tests
+
+```bash
+python manage.py test chatbot.tests.test_agent_service.TestCheckpointer \
+    --settings=config.settings.test -v 2 --keepdb
+```
+
+---
+
 ## Adding a New Test
 
 1. Open the appropriate test file (or create a new one)
