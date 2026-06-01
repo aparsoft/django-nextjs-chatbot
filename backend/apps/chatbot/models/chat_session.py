@@ -334,24 +334,9 @@ class ChatSession(TimestampedModel):
 
         if preferences:
             defaults = preferences.get_session_config()
-            # Remove keys that aren't ChatSession fields
-            defaults.pop("system_prompt", None)
-            defaults.pop("language", None)
-            defaults.pop("streaming", None)
-            defaults.pop("max_tokens", None)
-            # Map preference field names to session field names
-            defaults.setdefault("model_name", defaults.pop("default_model", "gpt-5-mini"))
-            defaults.setdefault(
-                "temperature", defaults.pop("default_temperature", 0.7)
-            )
-            defaults.setdefault(
-                "enable_summarization",
-                defaults.pop("enable_auto_summarization", True),
-            )
-            defaults.setdefault(
-                "summarization_threshold",
-                defaults.pop("summarization_trigger_tokens", 384),
-            )
+            # Only keep keys that are actual ChatSession model fields
+            valid_fields = {f.name for f in cls._meta.get_fields()}
+            defaults = {k: v for k, v in defaults.items() if k in valid_fields}
         else:
             defaults = {}
 
