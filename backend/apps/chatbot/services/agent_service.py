@@ -234,12 +234,14 @@ def get_checkpointer() -> PostgresSaver:
     """
     Return a ``PostgresSaver`` connected to ``settings.PG_CHECKPOINT_URI``.
 
-    The first call creates the checkpoint tables (``.setup()``) and caches
-    the instance for the lifetime of the process.
+    ``PostgresSaver.from_conn_string()`` returns a context manager
+    (iterator).  We enter it once and cache the connected instance for
+    the lifetime of the process.
     """
     global _checkpointer
     if _checkpointer is None:
-        _checkpointer = PostgresSaver.from_conn_string(settings.PG_CHECKPOINT_URI)
+        ctx = PostgresSaver.from_conn_string(settings.PG_CHECKPOINT_URI)
+        _checkpointer = ctx.__enter__()
         _checkpointer.setup()
         logger.info("PostgresSaver checkpointer initialised")
     return _checkpointer
@@ -371,19 +373,19 @@ class ChatAgentOrchestrator:
         if self.session.title == "New Conversation":
             self.session.update_title(user_message)
 
+        # Extract token usage from the last AI message (if available)
+        tokens_used = 0
+        messages = result.get("messages", [])
+        if messages and messages[-1] is not None:
+            usage = getattr(messages[-1], "usage_metadata", None)
+            if usage:
+                tokens_used = usage.get("total_tokens", 0)
+
         return {
             "response": ai_response,
-            "messages": result.get("messages", []),
+            "messages": messages,
             "session": self.session,
-            "tokens_used": (
-                getattr(
-                    result.get("messages", [None])[-1],
-                    "usage_metadata",
-                    {},
-                ).get("total_tokens", 0)
-                if result.get("messages")
-                else 0
-            ),
+            "tokens_used": tokens_used,
         }
 
     # ------------------------------------------------------------------
@@ -423,8 +425,10 @@ class ChatAgentOrchestrator:
 
     def get_history(self) -> List[BaseMessage]:
         """Return the current conversation history from the checkpointer."""
-        state = self.checkpointer.get_state(self.config)
-        return state.values.get("messages", [])
+        checkpoint_tuple = self.checkpointer.get_tuple(self.config)
+        if checkpoint_tuple is None:
+            return []
+        return checkpoint_tuple.checkpoint.get("channel_values", {}).get("messages", [])
 
     def get_history_display(self) -> List[Dict[str, Any]]:
         """Return formatted conversation history for display."""
