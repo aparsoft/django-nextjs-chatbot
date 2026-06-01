@@ -2,6 +2,13 @@
 Serializers package for chatbot API.
 """
 
+from .chat_agent_serializers import (
+    ChatAgentMessageSerializer,
+    ChatAgentResponseSerializer,
+    ChatAgentHistoryItemSerializer,
+    ChatAgentStreamChunkSerializer,
+)
+
 from .chat_session_serializers import (
     ChatSessionSerializer,
     ChatSessionListSerializer,
@@ -58,6 +65,11 @@ from .user_tool_serializers import (
 )
 
 __all__ = [
+    # ChatAgent serializers
+    "ChatAgentMessageSerializer",
+    "ChatAgentResponseSerializer",
+    "ChatAgentHistoryItemSerializer",
+    "ChatAgentStreamChunkSerializer",
     # ChatSession serializers
     "ChatSessionSerializer",
     "ChatSessionListSerializer",
