@@ -72,6 +72,11 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
             await self.close(code=4004)
             return
 
+        # Initialise the async checkpointer pool on first connection
+        # (idempotent — subsequent calls return the existing singleton)
+        from chatbot.services.agent_service import get_async_checkpointer
+        await get_async_checkpointer()
+
         # Join the channel group
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         await self.accept()
