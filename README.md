@@ -6,8 +6,8 @@
 [![Website](https://img.shields.io/badge/Website-aparsoft.com-green?style=flat)](https://aparsoft.com)
 
 ![Python](https://img.shields.io/badge/Python-3.12-blue?logo=python)
-![Django](https://img.shields.io/badge/Django-5.2-green?logo=django)
-![Next.js](https://img.shields.io/badge/Next.js-15-black?logo=next.js)
+![Django](https://img.shields.io/badge/Django-6+-green?logo=django)
+![Next.js](https://img.shields.io/badge/Next.js-16+-black?logo=next.js)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-blue?logo=postgresql)
 ![LangChain](https://img.shields.io/badge/LangChain-Latest-green)
 
@@ -120,16 +120,16 @@ New to the project? Start here:
 
 ## 🛠️ Tech Stack
 
-### Backend (Django 5.2)
-- **Django 5.2** + **Django REST Framework** — API development
+### Backend (Django 6+)
+- **Django 6+** + **Django REST Framework** — API development
 - **PostgreSQL 17 + pgvector** — relational DB with vector similarity search
 - **Redis 7** — cache, Celery broker, Django Channels
 - **Celery + Celery Beat** — background task processing & scheduling
 - **LangChain** — LLM application framework
 - **LangGraph** — stateful multi-step conversation flows with PostgresCheckpointer
 
-### Frontend (Next.js 15)
-- **Next.js 15** + **React 19** — server-side rendered UI
+### Frontend (Next.js 16+)
+- **Next.js 16+** + **React 19** — server-side rendered UI
 - **Tailwind CSS** — utility-first styling
 - **Axios** — HTTP client
 
@@ -148,21 +148,21 @@ New to the project? Start here:
 
 ```
 ┌─ YOUR MACHINE (local processes) ────────────────────────────┐
-│                                                              │
-│  Terminal 1          Terminal 2          Terminal 3          │
+│                                                             │
+│  Terminal 1          Terminal 2          Terminal 3         │
 │  ┌──────────┐        ┌──────────┐        ┌──────────┐       │
 │  │ Django   │        │ Celery   │        │ Celery   │       │
 │  │ :8000    │        │ worker   │        │ beat     │       │
 │  └────┬─────┘        └────┬─────┘        └────┬─────┘       │
-│       │                   │                   │              │
-│       └───────────────────┼───────────────────┘              │
-│                           │                                  │
-│  Terminal 4               │        ┌──────────────┐          │
-│  ┌──────────┐             │        │  OpenAI API  │          │
-│  │ Next.js  │─────────────┤        │  (external)  │          │
-│  │ :3000    │             │        └──────────────┘          │
-│  └──────────┘             │                                  │
-└───────────────────────────┼──────────────────────────────────┘
+│       │                   │                   │             │
+│       └───────────────────┼───────────────────┘             │
+│                           │                                 │
+│  Terminal 4               │        ┌──────────────┐         │
+│  ┌──────────┐             │        │  OpenAI API  │         │
+│  │ Next.js  │─────────────┤        │  (external)  │         │
+│  │ :3000    │             │        └──────────────┘         │
+│  └──────────┘             │                                 │
+└───────────────────────────┼─────────────────────────────────┘
                             │
 ┌─ DOCKER (infrastructure) ─┼──────────────────────────────────┐
 │                            ▼                                  │
