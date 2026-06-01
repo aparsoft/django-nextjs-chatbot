@@ -1,23 +1,110 @@
 # Docker Installation Guide
 
-Complete setup guide for installing Docker on WSL 2 Ubuntu 24.04.
+Complete setup guide for installing Docker and running the project. Choose your platform below.
 
-## 🐳 Installing Docker on WSL 2 (Ubuntu 24.04)
+---
 
-### Step 1: Update System Packages
+## 🪟 Option A: Docker Desktop on Windows (Recommended for Windows users)
+
+Docker Desktop includes Docker Engine, Docker Compose, and a GUI. It uses WSL 2 under the hood.
+
+### Step 1: Install WSL 2
+
+Open **PowerShell as Administrator**:
+
+```powershell
+wsl --install
+```
+
+This installs WSL 2 with Ubuntu by default. **Restart your computer** after this completes.
+
+### Step 2: Set up Ubuntu
+
+```powershell
+# Launch Ubuntu (first launch takes a minute)
+wsl
+
+# Inside Ubuntu, update packages
+sudo apt update && sudo apt upgrade -y
+```
+
+### Step 3: Install Docker Desktop
+
+1. Download from [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop/)
+2. Run the installer — ensure **"Use WSL 2 instead of Hyper-V"** is checked
+3. After installation, launch Docker Desktop
+4. Go to **Settings → Resources → WSL Integration** — enable integration with your Ubuntu distro
+5. Docker is now available inside WSL automatically
+
+### Step 4: Verify in WSL
+
+```bash
+# Open WSL terminal
+wsl
+
+# Verify Docker works
+docker --version
+docker compose version
+docker run hello-world
+```
+
+✅ You should see: `Hello from Docker!` and version info for Docker + Compose.
+
+### Step 5: Configure Git in WSL
+
+```bash
+# Install Git (if not already present)
+sudo apt install git -y
+
+# Configure your identity
+git config --global user.name "Your Full Name"
+git config --global user.email "you@example.com"
+git config --global core.autocrlf input
+```
+
+> 📖 For full Git + SSH setup, see [Git & SSH Setup Guide](./docs/GIT_SSH_SETUP.md).
+
+### Step 6: Clone & Run the Project
+
+```bash
+# Always clone inside WSL filesystem (much faster than /mnt/c/)
+cd ~
+git clone git@github.com:AparsoftAI/django-nextjs-chatbot.git
+cd django-nextjs-chatbot
+```
+
+Then jump to [Quick Start](#2️⃣-quick-start-run-the-project) below.
+
+---
+
+## 🐧 Option B: Native Docker in WSL 2 (No Docker Desktop)
+
+If you prefer running Docker natively inside WSL without Docker Desktop, follow these steps.
+
+### Step 1: Install WSL 2 + Ubuntu
+
+Open **PowerShell as Administrator**:
+
+```powershell
+wsl --install
+```
+
+Restart your computer, then launch Ubuntu from the Start Menu.
+
+### Step 2: Update System Packages
 
 ```bash
 sudo apt update
 sudo apt upgrade -y
 ```
 
-### Step 2: Install Prerequisites
+### Step 3: Install Prerequisites
 
 ```bash
 sudo apt install -y ca-certificates curl gnupg lsb-release
 ```
 
-### Step 3: Add Docker's Official GPG Key
+### Step 4: Add Docker's Official GPG Key
 
 ```bash
 sudo install -m 0755 -d /etc/apt/keyrings
@@ -27,51 +114,181 @@ curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o 
 sudo chmod a+r /etc/apt/keyrings/docker.gpg
 ```
 
-### Step 4: Set Up Docker Repository
+### Step 5: Set Up Docker Repository
 
 ```bash
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 ```
 
-### Step 5: Install Docker Engine
+### Step 6: Install Docker Engine
 
 ```bash
 sudo apt update
 sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 ```
 
-### Step 6: Start Docker Service
+### Step 7: Start Docker Service
 
 ```bash
 sudo service docker start
 ```
 
-### Step 7: Verify Installation
+> ⚠️ **WSL quirk:** Docker won't auto-start when WSL restarts. See [Auto-start Docker in WSL](#auto-start-docker-in-wsl) below.
 
-```bash
-sudo docker run hello-world
-```
+### Step 8: Add Your User to Docker Group
 
-You should see: "Hello from Docker!" message.
-
-### Step 8: Add Your User to Docker Group (Optional but Recommended)
-
-This allows you to run Docker without sudo:
+This lets you run Docker without `sudo`:
 
 ```bash
 sudo usermod -aG docker $USER
-```
-
-**Important:** After this, you need to log out and log back in, or run:
-
-```bash
 newgrp docker
 ```
 
+Log out and back in for this to take full effect.
+
+### Step 9: Verify Installation
+
+```bash
+docker run hello-world
 docker compose version
 ```
 
-You should see something like: Docker Compose version v2.x.x
+✅ You should see: `Hello from Docker!` and `Docker Compose version v2.x.x`.
+
+### Step 10: Configure Git in WSL
+
+```bash
+sudo apt install git -y
+git config --global user.name "Your Full Name"
+git config --global user.email "you@example.com"
+git config --global core.autocrlf input
+```
+
+> 📖 For full Git + SSH setup, see [Git & SSH Setup Guide](./docs/GIT_SSH_SETUP.md).
+
+### Step 11: Clone & Run the Project
+
+```bash
+# Always clone inside WSL filesystem (much faster than /mnt/c/)
+cd ~
+git clone git@github.com:AparsoftAI/django-nextjs-chatbot.git
+cd django-nextjs-chatbot
+```
+
+Then jump to [Quick Start](#2️⃣-quick-start-run-the-project) below.
+
+---
+
+## 🐧 Option C: Native Linux (Ubuntu/Debian)
+
+If you're on a native Linux machine (no WSL):
+
+```bash
+# Update system
+sudo apt update && sudo apt upgrade -y
+
+# Install prerequisites
+sudo apt install -y ca-certificates curl gnupg lsb-release
+
+# Add Docker GPG key
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+sudo chmod a+r /etc/apt/keyrings/docker.gpg
+
+# Add Docker repository
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+# Install Docker
+sudo apt update
+sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+# Add user to docker group
+sudo usermod -aG docker $USER
+newgrp docker
+
+# Start and enable Docker on boot
+sudo systemctl enable --now docker
+
+# Verify
+docker run hello-world
+docker compose version
+```
+
+Then clone and proceed to [Quick Start](#2️⃣-quick-start-run-the-project).
+
+---
+
+## 🔧 WSL-Specific Configuration
+
+### Auto-start Docker in WSL
+
+Docker doesn't auto-start when WSL launches. Fix this by adding to your shell profile:
+
+```bash
+# Add to ~/.bashrc or ~/.zshrc
+if ! service docker status > /dev/null 2>&1; then
+    sudo service docker start > /dev/null 2>&1
+fi
+```
+
+To allow `sudo service docker start` without a password prompt:
+
+```bash
+sudo visudo
+# Add this line at the end (replace 'yourname' with your WSL username):
+yourname ALL=(root) NOPASSWD: /usr/sbin/service docker start
+```
+
+### WSL Memory & Resource Limits
+
+Create or edit `%USERPROFILE%\.wslconfig` on **Windows** (not in WSL):
+
+```ini
+[wsl2]
+memory=8GB
+processors=4
+swap=2GB
+localhostForwarding=true
+```
+
+Then restart WSL in PowerShell: `wsl --shutdown`
+
+### WSL Filesystem Performance
+
+```bash
+# ✅ FAST — Work inside WSL's native filesystem
+cd ~
+git clone git@github.com:AparsoftAI/django-nextjs-chatbot.git
+
+# ❌ SLOW — Avoid working on the Windows mount
+# /mnt/c/Users/... is 3-5x slower for git operations
+```
+
+### Fix "Permission too open" for SSH Keys in WSL
+
+```bash
+chmod 700 ~/.ssh
+chmod 600 ~/.ssh/id_ed25519
+chmod 644 ~/.ssh/id_ed25519.pub
+```
+
+### Fix Port Forwarding (Windows ↔ WSL)
+
+WSL 2 automatically forwards ports, but if you can't access `localhost:8000` from Windows:
+
+```bash
+# Check WSL IP
+hostname -I | awk '{print $1}'
+# e.g., 172.25.123.45
+
+# From Windows PowerShell, add port proxy (run as admin):
+netsh interface portproxy add v4tov4 listenport=8000 listenaddress=0.0.0.0 connectport=8000 connectaddress=172.25.123.45
+```
+
+To remove the proxy later:
+```powershell
+netsh interface portproxy delete v4tov4 listenport=8000 listenaddress=0.0.0.0
+```
 
 ---
 
@@ -150,6 +367,7 @@ docker compose exec backend python manage.py createsuperuser
 
 ### .dockerignore Example
 Create a `.dockerignore` in both backend and frontend:
+
 ```
 # .dockerignore
 node_modules
@@ -160,9 +378,7 @@ __pycache__/
 *.pyc
 .git
 Dockerfile*
-```bash
 README.md
-docker-compose up --build
 ```
 
 ### Security Checklist
@@ -227,10 +443,10 @@ A: Fix file permissions: `sudo chown -R $USER:$USER .`
 A: `docker compose build --no-cache`
 
 **Q: WSL2 memory limits?**
-A: Edit `.wslconfig` in Windows user folder:
+A: Edit `.wslconfig` in your Windows user folder (`%USERPROFILE%\.wslconfig`):
 ```ini
 [wsl2]
-```
+memory=8GB
 processors=4
 swap=2GB
 ```
