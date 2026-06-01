@@ -127,7 +127,7 @@ class Command(BaseCommand):
     # User resolution
     # ------------------------------------------------------------------
 
-    def _resolve_user(self, email: str | None) -> User:
+    def _resolve_user(self, email: str | None):
         """Find the user to chat as."""
         if email:
             try:
@@ -164,7 +164,8 @@ class Command(BaseCommand):
         if session_uuid:
             try:
                 return ChatSession.objects.get(
-                    id=uuid.UUID(session_uuid), user=self.user,
+                    id=uuid.UUID(session_uuid),
+                    user=self.user,
                 )
             except (ChatSession.DoesNotExist, ValueError):
                 raise CommandError(f"Session not found: {session_uuid}")
@@ -235,15 +236,11 @@ class Command(BaseCommand):
             meta_parts = [f"{elapsed:.1f}s"]
             if tokens:
                 meta_parts.append(f"{tokens} tokens")
-            self.stdout.write(
-                f"{C.DIM}[{' | '.join(meta_parts)}]{C.RESET}"
-            )
+            self.stdout.write(f"{C.DIM}[{' | '.join(meta_parts)}]{C.RESET}")
 
         except Exception as e:
             logger.exception("Agent error")
-            self.stderr.write(
-                f"\n{C.RED}Error: {e}{C.RESET}"
-            )
+            self.stderr.write(f"\n{C.RED}Error: {e}{C.RESET}")
 
     def _send_single(self, message: str):
         """Send a single message in non-interactive mode."""
@@ -306,7 +303,9 @@ class Command(BaseCommand):
     def _print_banner(self):
         C = self.Colors
         self.stdout.write(f"\n{C.BOLD}{'=' * 60}{C.RESET}")
-        self.stdout.write(f"{C.BOLD}{C.MAGENTA}  🤖 LangGraph Chatbot — Interactive CLI{C.RESET}")
+        self.stdout.write(
+            f"{C.BOLD}{C.MAGENTA}  🤖 LangGraph Chatbot — Interactive CLI{C.RESET}"
+        )
         self.stdout.write(f"{C.BOLD}{'=' * 60}{C.RESET}")
         self.stdout.write(f"  User:    {C.CYAN}{self.user.email}{C.RESET}")
         self.stdout.write(f"  Session: {C.CYAN}{self.session.thread_id}{C.RESET}")
@@ -340,6 +339,7 @@ class Command(BaseCommand):
             messages = orchestrator.get_history_display()
         except Exception:
             from chatbot.services import MessageService
+
             messages = MessageService.format_messages_for_display(
                 MessageService.get_conversation_history(self.session.id)
             )
@@ -401,10 +401,16 @@ class Command(BaseCommand):
         self.stdout.write(f"  Tokens Used: {self.session.total_tokens_used}")
         self.stdout.write(f"  Model:       {self.session.model_name}")
         self.stdout.write(f"  Temperature: {self.session.temperature}")
-        self.stdout.write(f"  Created:     {self.session.created_at.strftime('%Y-%m-%d %H:%M')}")
+        self.stdout.write(
+            f"  Created:     {self.session.created_at.strftime('%Y-%m-%d %H:%M')}"
+        )
         self.stdout.write(
             f"  Last Active: "
             f"{self.session.last_message_at.strftime('%Y-%m-%d %H:%M') if self.session.last_message_at else 'N/A'}"
         )
-        self.stdout.write(f"  Summarize:   {'ON' if self.session.enable_summarization else 'OFF'}")
-        self.stdout.write(f"  Threshold:   {self.session.summarization_threshold} tokens")
+        self.stdout.write(
+            f"  Summarize:   {'ON' if self.session.enable_summarization else 'OFF'}"
+        )
+        self.stdout.write(
+            f"  Threshold:   {self.session.summarization_threshold} tokens"
+        )
