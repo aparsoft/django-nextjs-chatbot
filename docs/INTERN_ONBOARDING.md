@@ -28,7 +28,7 @@ Before you start, make sure you have these installed:
 | Tool | Version | Why | Install |
 |------|---------|-----|---------|
 | **Docker Desktop** | Latest | Runs PostgreSQL + Redis for you | [docker.com](https://www.docker.com/products/docker-desktop/) |
-| **Git** | Latest | Version control | [git-scm.com](https://git-scm.com/) |
+| **Git** | Latest | Version control | [git-scm.com](https://git-scm.com/) — see [Git & SSH Setup Guide](./GIT_SSH_SETUP.md) |
 | **VS Code** | Latest | Code editor (recommended) | [code.visualstudio.com](https://code.visualstudio.com/) |
 | **Python** | 3.12+ | Backend language | [python.org](https://www.python.org/downloads/) |
 | **Node.js** | 20+ | Frontend runtime | [nodejs.org](https://nodejs.org/) |
@@ -99,6 +99,8 @@ django-nextjs-chatbot/
 ## 3. Day 1: Setup
 
 ### Step 1: Clone the repo
+
+> 📖 **New to Git or SSH?** Follow the [Git & SSH Setup Guide](./GIT_SSH_SETUP.md) first — it covers installation, SSH key generation, and connecting to GitHub on both Windows and WSL/Linux.
 
 ```bash
 git clone <repo-url>
