@@ -20,7 +20,7 @@ Usage:
         from chatbot.services import APIKeyService, ChatSessionService, ...
 """
 
-from .agent_service import AgentService, ChatAgentOrchestrator
+from .agent_service import AgentService, ChatAgentOrchestrator, get_checkpointer, get_async_checkpointer
 from .api_key_service import APIKeyService
 from .chat_session_service import ChatSessionService
 from .document_processing_service import DocumentProcessingService
