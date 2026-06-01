@@ -4,35 +4,42 @@ Tests for the LangGraph Agent Service
 Tests the agent service layer including:
 - ChatAgentOrchestrator construction and configuration
 - AgentService façade methods
+- SummarizationMiddleware
 - Tool loading and registration
-- Checkpointer integration
+- Checkpointer singleton
 - Management command (run_chat)
 
-Testing strategy:
-    - Unit tests mock external services (OpenAI, PostgresSaver)
-    - Integration tests use InMemorySaver instead of PostgresSaver
-    - Management command tests use CallCommand with mocked agent
+Testing strategy (per TESTING.md rules):
+    - NO external calls — all LLM / PostgresSaver calls are mocked
+    - ChatbotTestMixin factory helpers for user/session creation
+    - Independent tests — any file can run in isolation
+    - Unique IDs via _next_id() counter
 
 Run:
+    cd backend
     python manage.py test chatbot.tests.test_agent_service \
         --settings=config.settings.test -v 2
+
+    # Fast re-run
+    python manage.py test chatbot.tests.test_agent_service \
+        --settings=config.settings.test -v 2 --keepdb
 """
 
 import uuid
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
-from django.test import TestCase, override_settings
+from django.test import TestCase
 from django.core.management import call_command
 from django.contrib.auth import get_user_model
 from io import StringIO
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-from langgraph.checkpoint.memory import InMemorySaver
 
 from chatbot.models import ChatSession, UserPreference, UserTool, TOOL_REGISTRY
 from chatbot.services.agent_service import (
     AgentService,
     ChatAgentOrchestrator,
+    SummarizationMiddleware,
     calculator,
     load_tools_for_user,
     get_checkpointer,
@@ -40,6 +47,87 @@ from chatbot.services.agent_service import (
 from chatbot.tests._mixins import ChatbotTestMixin
 
 User = get_user_model()
+
+
+# ---------------------------------------------------------------------------
+# SummarizationMiddleware Tests
+# ---------------------------------------------------------------------------
+
+
+class TestSummarizationMiddleware(ChatbotTestMixin, TestCase):
+    """Test the SummarizationMiddleware for conversation compression."""
+
+    def setUp(self):
+        self.user = self.create_user()
+        self.preference = self.create_preference(self.user)
+        self.session = self.create_session(self.user)
+
+    def test_middleware_creation(self):
+        """Middleware can be created with a session."""
+        mw = SummarizationMiddleware(self.session)
+        self.assertIsNotNone(mw)
+        self.assertIsInstance(mw._config, dict)
+
+    def test_middleware_before_model_short_history(self):
+        """before_model returns state unchanged when messages are short."""
+        mw = SummarizationMiddleware(self.session)
+
+        state = {
+            "messages": [
+                HumanMessage(content="Hi"),
+                AIMessage(content="Hello!"),
+            ]
+        }
+        result = mw.before_model(state)
+
+        # Messages should be unchanged — too short to summarize
+        self.assertEqual(len(result["messages"]), 2)
+
+    def test_middleware_before_model_respects_disabled(self):
+        """before_model skips summarization when disabled."""
+        self.session.enable_summarization = False
+        self.session.save()
+
+        mw = SummarizationMiddleware(self.session)
+
+        state = {"messages": [HumanMessage(content="Hi")]}
+        result = mw.before_model(state)
+
+        self.assertEqual(len(result["messages"]), 1)
+
+    def test_middleware_reads_session_config(self):
+        """Middleware reads config from session and user preferences."""
+        mw = SummarizationMiddleware(self.session)
+
+        config = mw._config
+        self.assertIn("enabled", config)
+        self.assertIn("threshold", config)
+        self.assertIn("style", config)
+
+    @patch("chatbot.services.agent_service.SummarizationService")
+    def test_middleware_triggers_compression(self, MockSummary):
+        """before_model compresses messages when threshold exceeded."""
+        MockSummary.get_session_config.return_value = {
+            "enabled": True,
+            "threshold": 10,
+            "keep_recent": 2,
+            "model_name": "gpt-4o-mini",
+            "max_summary_tokens": 128,
+            "style": "concise",
+        }
+        MockSummary.should_summarize.return_value = True
+        MockSummary.compress_messages.return_value = [
+            SystemMessage(content="[Conversation Summary]\nTest summary"),
+            AIMessage(content="Recent message"),
+        ]
+
+        mw = SummarizationMiddleware(self.session)
+        state = {"messages": [HumanMessage(content="Long message")] * 20}
+        result = mw.before_model(state)
+
+        MockSummary.should_summarize.assert_called_once()
+        MockSummary.compress_messages.assert_called_once()
+        self.assertEqual(len(result["messages"]), 2)
 
 
 # ---------------------------------------------------------------------------
@@ -55,42 +143,61 @@ class TestChatAgentOrchestrator(ChatbotTestMixin, TestCase):
         self.preference = self.create_preference(self.user)
         self.session = self.create_session(self.user)
 
+    @patch("chatbot.services.agent_service.create_agent")
     @patch("chatbot.services.agent_service.get_checkpointer")
     @patch("chatbot.services.agent_service.load_tools_for_user")
-    def test_orchestrator_initialisation(self, mock_load_tools, mock_checkpoint):
-        """Orchestrator correctly sets up LLM, tools, and checkpointer."""
+    def test_orchestrator_initialisation(
+        self, mock_load_tools, mock_checkpoint, mock_create_agent
+    ):
+        """Orchestrator correctly sets up tools, middleware, and config."""
         mock_load_tools.return_value = []
-        mock_checkpoint.return_value = InMemorySaver()
+        mock_checkpoint.return_value = MagicMock()
+        mock_create_agent.return_value = MagicMock()
 
         orch = ChatAgentOrchestrator(self.session)
 
         self.assertEqual(orch.session, self.session)
         self.assertEqual(orch.user, self.user)
         self.assertEqual(orch.tools, [])
+        self.assertEqual(len(orch.middleware), 1)
+        self.assertIsInstance(orch.middleware[0], SummarizationMiddleware)
         self.assertIsNotNone(orch.agent)
-        self.assertEqual(
-            orch.config["configurable"]["thread_id"],
-            self.session.thread_id,
-        )
 
+        # Verify create_agent called with NEW API params
+        mock_create_agent.assert_called_once()
+        call_kwargs = mock_create_agent.call_args.kwargs
+        self.assertIn("system_prompt", call_kwargs)
+        self.assertIn("middleware", call_kwargs)
+        self.assertIn("checkpointer", call_kwargs)
+        # Model should be "openai:<model_name>"
+        self.assertTrue(call_kwargs["model"].startswith("openai:"))
+
+    @patch("chatbot.services.agent_service.create_agent")
     @patch("chatbot.services.agent_service.get_checkpointer")
     @patch("chatbot.services.agent_service.load_tools_for_user")
-    def test_orchestrator_custom_recursion_limit(self, mock_tools, mock_checkpoint):
+    def test_orchestrator_custom_recursion_limit(
+        self, mock_tools, mock_checkpoint, mock_create_agent
+    ):
         """Orchestrator respects custom recursion_limit."""
         mock_tools.return_value = []
-        mock_checkpoint.return_value = InMemorySaver()
+        mock_checkpoint.return_value = MagicMock()
+        mock_create_agent.return_value = MagicMock()
 
         orch = ChatAgentOrchestrator(self.session, recursion_limit=10)
 
         self.assertEqual(orch.recursion_limit, 10)
         self.assertEqual(orch.config["recursion_limit"], 10)
 
+    @patch("chatbot.services.agent_service.create_agent")
     @patch("chatbot.services.agent_service.get_checkpointer")
     @patch("chatbot.services.agent_service.load_tools_for_user")
-    def test_orchestrator_custom_system_prompt(self, mock_tools, mock_checkpoint):
+    def test_orchestrator_custom_system_prompt(
+        self, mock_tools, mock_checkpoint, mock_create_agent
+    ):
         """Orchestrator uses custom system prompt when provided."""
         mock_tools.return_value = []
-        mock_checkpoint.return_value = InMemorySaver()
+        mock_checkpoint.return_value = MagicMock()
+        mock_create_agent.return_value = MagicMock()
 
         orch = ChatAgentOrchestrator(
             self.session, system_prompt="You are a pirate."
@@ -98,124 +205,218 @@ class TestChatAgentOrchestrator(ChatbotTestMixin, TestCase):
 
         self.assertEqual(orch.system_prompt, "You are a pirate.")
 
+    @patch("chatbot.services.agent_service.create_agent")
     @patch("chatbot.services.agent_service.get_checkpointer")
     @patch("chatbot.services.agent_service.load_tools_for_user")
-    def test_orchestrator_default_system_prompt(self, mock_tools, mock_checkpoint):
-        """Orchestrator builds a default system prompt when none is provided."""
+    def test_orchestrator_default_system_prompt(
+        self, mock_tools, mock_checkpoint, mock_create_agent
+    ):
+        """Orchestrator builds a default system prompt when none provided."""
         mock_tools.return_value = []
-        mock_checkpoint.return_value = InMemorySaver()
+        mock_checkpoint.return_value = MagicMock()
+        mock_create_agent.return_value = MagicMock()
 
         orch = ChatAgentOrchestrator(self.session)
-
         self.assertIn("helpful", orch.system_prompt.lower())
 
+    @patch("chatbot.services.agent_service.create_agent")
     @patch("chatbot.services.agent_service.get_checkpointer")
     @patch("chatbot.services.agent_service.load_tools_for_user")
-    def test_orchestrator_session_model_and_temperature(self, mock_tools, mock_checkpoint):
-        """Orchestrator uses the session's model_name and temperature."""
+    def test_orchestrator_model_string_format(
+        self, mock_tools, mock_checkpoint, mock_create_agent
+    ):
+        """Orchestrator passes model as 'openai:<model_name>' string."""
         mock_tools.return_value = []
-        mock_checkpoint.return_value = InMemorySaver()
+        mock_checkpoint.return_value = MagicMock()
+        mock_create_agent.return_value = MagicMock()
 
         session = self.create_session(
             self.user, model_name="gpt-4o", temperature=0.3
         )
-        orch = ChatAgentOrchestrator(session)
+        ChatAgentOrchestrator(session)
 
-        # The LLM should be configured with session settings
-        self.assertEqual(orch.llm.model_name, "gpt-4o")
+        call_kwargs = mock_create_agent.call_args.kwargs
+        self.assertEqual(call_kwargs["model"], "openai:gpt-4o")
 
+    @patch("chatbot.services.agent_service.create_agent")
     @patch("chatbot.services.agent_service.get_checkpointer")
     @patch("chatbot.services.agent_service.load_tools_for_user")
-    def test_orchestrator_invoke_returns_response(self, mock_tools, mock_checkpoint):
+    def test_orchestrator_invoke_returns_response(
+        self, mock_tools, mock_checkpoint, mock_create_agent
+    ):
         """Orchestrator.invoke() returns a dict with 'response' key."""
         mock_tools.return_value = []
-        saver = InMemorySaver()
-        mock_checkpoint.return_value = saver
+        mock_checkpoint.return_value = MagicMock()
+        mock_agent = MagicMock()
+        mock_create_agent.return_value = mock_agent
+
+        ai_msg = AIMessage(content="Hello! I am the AI assistant.")
+        mock_agent.invoke.return_value = {"messages": [ai_msg]}
 
         orch = ChatAgentOrchestrator(self.session)
-
-        # Mock the agent to return a controlled response
-        ai_msg = AIMessage(content="Hello! I am the AI assistant.")
-        with patch.object(orch.agent, "invoke") as mock_invoke:
-            mock_invoke.return_value = {"messages": [ai_msg]}
-            result = orch.invoke("Hi there!")
+        result = orch.invoke("Hi there!")
 
         self.assertIn("response", result)
         self.assertEqual(result["response"], "Hello! I am the AI assistant.")
         self.assertIn("messages", result)
         self.assertIn("session", result)
 
+    @patch("chatbot.services.agent_service.create_agent")
     @patch("chatbot.services.agent_service.get_checkpointer")
     @patch("chatbot.services.agent_service.load_tools_for_user")
-    def test_orchestrator_invoke_updates_session_title(self, mock_tools, mock_checkpoint):
+    def test_orchestrator_invoke_updates_session_title(
+        self, mock_tools, mock_checkpoint, mock_create_agent
+    ):
         """First invoke auto-generates a session title from the user message."""
         mock_tools.return_value = []
-        mock_checkpoint.return_value = InMemorySaver()
+        mock_checkpoint.return_value = MagicMock()
+        mock_agent = MagicMock()
+        mock_create_agent.return_value = mock_agent
 
-        # Ensure session has default title
-        self.assertEqual(self.session.title, "New Conversation")
+        # Force default title so auto-title triggers
+        self.session.title = "New Conversation"
+        self.session.save()
 
+        mock_agent.invoke.return_value = {
+            "messages": [AIMessage(content="Sure!")]
+        }
         orch = ChatAgentOrchestrator(self.session)
-
-        ai_msg = AIMessage(content="Sure!")
-        with patch.object(orch.agent, "invoke") as mock_invoke:
-            mock_invoke.return_value = {"messages": [ai_msg]}
-            orch.invoke("Tell me about Python decorators")
+        orch.invoke("Tell me about Python decorators")
 
         self.session.refresh_from_db()
         self.assertNotEqual(self.session.title, "New Conversation")
         self.assertIn("Python", self.session.title)
 
+    @patch("chatbot.services.agent_service.create_agent")
     @patch("chatbot.services.agent_service.get_checkpointer")
     @patch("chatbot.services.agent_service.load_tools_for_user")
-    def test_orchestrator_invoke_updates_analytics(self, mock_tools, mock_checkpoint):
+    def test_orchestrator_invoke_updates_analytics(
+        self, mock_tools, mock_checkpoint, mock_create_agent
+    ):
         """Invoke increments session message_count."""
         mock_tools.return_value = []
-        mock_checkpoint.return_value = InMemorySaver()
+        mock_checkpoint.return_value = MagicMock()
+        mock_agent = MagicMock()
+        mock_create_agent.return_value = mock_agent
 
         initial_count = self.session.message_count
+        mock_agent.invoke.return_value = {
+            "messages": [AIMessage(content="Reply")]
+        }
         orch = ChatAgentOrchestrator(self.session)
-
-        ai_msg = AIMessage(content="Reply")
-        with patch.object(orch.agent, "invoke") as mock_invoke:
-            mock_invoke.return_value = {"messages": [ai_msg]}
-            orch.invoke("Hello")
+        orch.invoke("Hello")
 
         self.session.refresh_from_db()
         self.assertEqual(self.session.message_count, initial_count + 2)
 
+    @patch("chatbot.services.agent_service.create_agent")
     @patch("chatbot.services.agent_service.get_checkpointer")
     @patch("chatbot.services.agent_service.load_tools_for_user")
-    def test_orchestrator_get_history(self, mock_tools, mock_checkpoint):
-        """get_history returns the messages from checkpointer state."""
+    def test_orchestrator_get_history_empty(
+        self, mock_tools, mock_checkpoint, mock_create_agent
+    ):
+        """get_history returns empty list when no checkpoint exists."""
         mock_tools.return_value = []
-        saver = InMemorySaver()
-        mock_checkpoint.return_value = saver
+        mock_cp = MagicMock()
+        mock_cp.get_tuple.return_value = None
+        mock_checkpoint.return_value = mock_cp
+        mock_create_agent.return_value = MagicMock()
 
         orch = ChatAgentOrchestrator(self.session)
-
-        # Initially empty
         history = orch.get_history()
         self.assertEqual(history, [])
 
+    @patch("chatbot.services.agent_service.create_agent")
     @patch("chatbot.services.agent_service.get_checkpointer")
     @patch("chatbot.services.agent_service.load_tools_for_user")
-    def test_orchestrator_stream_yields_events(self, mock_tools, mock_checkpoint):
-        """stream() yields events from the agent."""
+    def test_orchestrator_get_history_with_messages(
+        self, mock_tools, mock_checkpoint, mock_create_agent
+    ):
+        """get_history returns messages from the checkpointer."""
         mock_tools.return_value = []
-        mock_checkpoint.return_value = InMemorySaver()
+        mock_cp = MagicMock()
+        mock_cp.get_tuple.return_value = MagicMock(
+            checkpoint={
+                "channel_values": {
+                    "messages": [
+                        HumanMessage(content="Hi"),
+                        AIMessage(content="Hello!"),
+                    ]
+                }
+            }
+        )
+        mock_checkpoint.return_value = mock_cp
+        mock_create_agent.return_value = MagicMock()
 
         orch = ChatAgentOrchestrator(self.session)
+        history = orch.get_history()
+        self.assertEqual(len(history), 2)
+
+    @patch("chatbot.services.agent_service.create_agent")
+    @patch("chatbot.services.agent_service.get_checkpointer")
+    @patch("chatbot.services.agent_service.load_tools_for_user")
+    def test_orchestrator_stream_yields_events(
+        self, mock_tools, mock_checkpoint, mock_create_agent
+    ):
+        """stream() yields events from the agent."""
+        mock_tools.return_value = []
+        mock_checkpoint.return_value = MagicMock()
+        mock_agent = MagicMock()
+        mock_create_agent.return_value = mock_agent
 
         mock_events = [
             {"messages": [HumanMessage(content="Hi")]},
             {"messages": [HumanMessage(content="Hi"), AIMessage(content="Hello")]},
         ]
-        with patch.object(orch.agent, "stream") as mock_stream:
-            mock_stream.return_value = iter(mock_events)
-            events = list(orch.stream("Hi"))
+        mock_agent.stream.return_value = iter(mock_events)
 
+        orch = ChatAgentOrchestrator(self.session)
+        events = list(orch.stream("Hi"))
         self.assertEqual(len(events), 2)
+
+    @patch("chatbot.services.agent_service.create_agent")
+    @patch("chatbot.services.agent_service.get_checkpointer")
+    @patch("chatbot.services.agent_service.load_tools_for_user")
+    def test_orchestrator_config_has_thread_id(
+        self, mock_tools, mock_checkpoint, mock_create_agent
+    ):
+        """Agent config maps thread_id to session UUID."""
+        mock_tools.return_value = []
+        mock_checkpoint.return_value = MagicMock()
+        mock_create_agent.return_value = MagicMock()
+
+        orch = ChatAgentOrchestrator(self.session)
+        self.assertEqual(
+            orch.config["configurable"]["thread_id"],
+            str(self.session.id),
+        )
+
+    @patch("chatbot.services.agent_service.create_agent")
+    @patch("chatbot.services.agent_service.get_checkpointer")
+    @patch("chatbot.services.agent_service.load_tools_for_user")
+    def test_orchestrator_invoke_extracts_tokens(
+        self, mock_tools, mock_checkpoint, mock_create_agent
+    ):
+        """invoke extracts token usage from the AI message."""
+        mock_tools.return_value = []
+        mock_checkpoint.return_value = MagicMock()
+        mock_agent = MagicMock()
+        mock_create_agent.return_value = mock_agent
+
+        ai_msg = AIMessage(
+            content="Reply",
+            usage_metadata={
+                "input_tokens": 20,
+                "output_tokens": 22,
+                "total_tokens": 42,
+            },
+        )
+        mock_agent.invoke.return_value = {"messages": [ai_msg]}
+
+        orch = ChatAgentOrchestrator(self.session)
+        result = orch.invoke("Hello")
+
+        self.assertEqual(result["tokens_used"], 42)
 
 
 # ---------------------------------------------------------------------------
@@ -231,53 +432,47 @@ class TestAgentService(ChatbotTestMixin, TestCase):
         self.preference = self.create_preference(self.user)
         self.session = self.create_session(self.user)
 
+    @patch("chatbot.services.agent_service.create_agent")
     @patch("chatbot.services.agent_service.get_checkpointer")
     @patch("chatbot.services.agent_service.load_tools_for_user")
-    def test_create_orchestrator(self, mock_tools, mock_checkpoint):
+    def test_create_orchestrator(
+        self, mock_tools, mock_checkpoint, mock_create_agent
+    ):
         """create_orchestrator returns a ChatAgentOrchestrator."""
         mock_tools.return_value = []
-        mock_checkpoint.return_value = InMemorySaver()
+        mock_checkpoint.return_value = MagicMock()
+        mock_create_agent.return_value = MagicMock()
 
         orch = AgentService.create_orchestrator(self.session)
 
         self.assertIsInstance(orch, ChatAgentOrchestrator)
         self.assertEqual(orch.session, self.session)
 
-    @patch("chatbot.services.agent_service.get_checkpointer")
-    @patch("chatbot.services.agent_service.load_tools_for_user")
-    def test_chat_convenience(self, mock_tools, mock_checkpoint):
+    @patch("chatbot.services.agent_service.ChatAgentOrchestrator.invoke")
+    @patch("chatbot.services.agent_service.ChatAgentOrchestrator.__init__")
+    def test_chat_convenience(self, mock_init, mock_invoke):
         """AgentService.chat() invokes the orchestrator and returns result."""
-        mock_tools.return_value = []
-        mock_checkpoint.return_value = InMemorySaver()
+        mock_init.return_value = None  # skip __init__
+        mock_invoke.return_value = {
+            "response": "Test response",
+            "messages": [AIMessage(content="Test response")],
+            "session": self.session,
+            "tokens_used": 50,
+        }
 
-        ai_msg = AIMessage(content="Test response")
-        with patch(
-            "chatbot.services.agent_service.ChatAgentOrchestrator.invoke"
-        ) as mock_invoke:
-            mock_invoke.return_value = {
-                "response": "Test response",
-                "messages": [ai_msg],
-                "session": self.session,
-                "tokens_used": 50,
-            }
-            result = AgentService.chat(self.session, "Hello")
+        result = AgentService.chat(self.session, "Hello")
 
         self.assertEqual(result["response"], "Test response")
 
-    @patch("chatbot.services.agent_service.get_checkpointer")
-    @patch("chatbot.services.agent_service.load_tools_for_user")
-    def test_chat_stream_yields_events(self, mock_tools, mock_checkpoint):
+    @patch("chatbot.services.agent_service.ChatAgentOrchestrator.stream")
+    @patch("chatbot.services.agent_service.ChatAgentOrchestrator.__init__")
+    def test_chat_stream_yields_events(self, mock_init, mock_stream):
         """AgentService.chat_stream() yields stream events."""
-        mock_tools.return_value = []
-        mock_checkpoint.return_value = InMemorySaver()
-
+        mock_init.return_value = None
         mock_events = [{"messages": []}]
-        with patch(
-            "chatbot.services.agent_service.ChatAgentOrchestrator.stream"
-        ) as mock_stream:
-            mock_stream.return_value = iter(mock_events)
-            events = list(AgentService.chat_stream(self.session, "Hi"))
+        mock_stream.return_value = iter(mock_events)
 
+        events = list(AgentService.chat_stream(self.session, "Hi"))
         self.assertEqual(len(events), 1)
 
 
@@ -309,14 +504,12 @@ class TestToolLoading(ChatbotTestMixin, TestCase):
         """Skips web_search (not yet implemented)."""
         UserTool.enable_tool(self.user, "web_search")
         tools = load_tools_for_user(self.user)
-
         self.assertEqual(tools, [])
 
     def test_load_tools_skips_code_executor(self):
         """Skips code_executor (not yet implemented)."""
         UserTool.enable_tool(self.user, "code_executor")
         tools = load_tools_for_user(self.user)
-
         self.assertEqual(tools, [])
 
     def test_load_tools_multiple_enabled(self):
@@ -326,7 +519,7 @@ class TestToolLoading(ChatbotTestMixin, TestCase):
         UserTool.enable_tool(self.user, "code_executor")  # skipped
 
         tools = load_tools_for_user(self.user)
-        self.assertEqual(len(tools), 1)  # only calculator
+        self.assertEqual(len(tools), 1)
         self.assertEqual(tools[0].name, "calculator")
 
     def test_load_tools_disabled_tool_not_loaded(self):
@@ -358,16 +551,24 @@ class TestCalculatorTool(TestCase):
         self.assertEqual(calculator.invoke({"expression": "2 + 2"}), "4")
 
     def test_multiplication(self):
-        self.assertEqual(calculator.invoke({"expression": "15 * 3.5"}), "52.5")
+        self.assertEqual(
+            calculator.invoke({"expression": "15 * 3.5"}), "52.5"
+        )
 
     def test_subtraction(self):
-        self.assertEqual(calculator.invoke({"expression": "100 - 37"}), "63")
+        self.assertEqual(
+            calculator.invoke({"expression": "100 - 37"}), "63"
+        )
 
     def test_division(self):
-        self.assertEqual(calculator.invoke({"expression": "144 / 12"}), "12.0")
+        self.assertEqual(
+            calculator.invoke({"expression": "144 / 12"}), "12.0"
+        )
 
     def test_abs(self):
-        self.assertEqual(calculator.invoke({"expression": "abs(-42)"}), "42")
+        self.assertEqual(
+            calculator.invoke({"expression": "abs(-42)"}), "42"
+        )
 
     def test_min_max(self):
         self.assertEqual(calculator.invoke({"expression": "min(3, 7)"}), "3")
@@ -385,7 +586,6 @@ class TestCalculatorTool(TestCase):
     def test_division_by_zero(self):
         """Division by zero returns error string."""
         result = calculator.invoke({"expression": "1 / 0"})
-        # Python eval returns ZeroDivisionError which gets caught
         self.assertIn("Error", result)
 
     def test_tool_has_name_and_description(self):
@@ -402,93 +602,29 @@ class TestCalculatorTool(TestCase):
 class TestCheckpointer(TestCase):
     """Test the checkpointer singleton."""
 
-    def test_get_checkpointer_returns_postgres_saver(self):
-        """get_checkpointer returns a PostgresSaver instance."""
-        from langgraph.checkpoint.postgres import PostgresSaver
+    def test_get_checkpointer_enters_context_manager(self):
+        """get_checkpointer enters the from_conn_string context manager."""
+        import chatbot.services.agent_service as mod
+        mod._checkpointer = None  # reset singleton
+
+        mock_ctx = MagicMock()
+        mock_instance = MagicMock()
+        mock_ctx.__enter__ = MagicMock(return_value=mock_instance)
+        mock_ctx.__exit__ = MagicMock(return_value=False)
 
         with patch(
             "chatbot.services.agent_service.PostgresSaver"
         ) as MockSaver:
-            mock_instance = MagicMock()
-            MockSaver.from_conn_string.return_value = mock_instance
-
-            # Reset singleton for clean test
-            import chatbot.services.agent_service as mod
-            mod._checkpointer = None
+            MockSaver.from_conn_string.return_value = mock_ctx
 
             result = get_checkpointer()
+
             self.assertEqual(result, mock_instance)
-            MockSaver.from_conn_string.assert_called_once()
+            mock_ctx.__enter__.assert_called_once()
+            mock_instance.setup.assert_called_once()
 
-            # Cleanup
-            mod._checkpointer = None
-
-
-# ---------------------------------------------------------------------------
-# Integration Test — Full Agent Loop (with InMemorySaver)
-# ---------------------------------------------------------------------------
-
-
-class TestAgentIntegration(ChatbotTestMixin, TestCase):
-    """
-    Integration test that runs the agent end-to-end with InMemorySaver.
-
-    These tests mock the LLM call to avoid hitting OpenAI's API.
-    """
-
-    def setUp(self):
-        self.user = self.create_user()
-        self.preference = self.create_preference(self.user)
-        self.session = self.create_session(self.user)
-
-    @patch("chatbot.services.agent_service.get_checkpointer")
-    @patch("chatbot.services.agent_service.load_tools_for_user")
-    def test_agent_invokes_llm_and_returns_response(self, mock_tools, mock_checkpoint):
-        """Full invoke cycle: user message → LLM → AI response."""
-        mock_tools.return_value = []
-        saver = InMemorySaver()
-        mock_checkpoint.return_value = saver
-
-        orch = ChatAgentOrchestrator(self.session)
-
-        # Mock the agent graph to simulate a real LLM response
-        ai_msg = AIMessage(
-            content="LangGraph is a framework for building stateful AI applications.",
-            usage_metadata={"total_tokens": 42},
-        )
-        with patch.object(orch.agent, "invoke") as mock_invoke:
-            mock_invoke.return_value = {"messages": [ai_msg]}
-            result = orch.invoke("What is LangGraph?")
-
-        self.assertIn("LangGraph", result["response"])
-        self.assertEqual(len(result["messages"]), 1)
-
-    @patch("chatbot.services.agent_service.get_checkpointer")
-    @patch("chatbot.services.agent_service.load_tools_for_user")
-    def test_agent_with_calculator_tool(self, mock_tools, mock_checkpoint):
-        """Agent can use the calculator tool."""
-        calc_tool = calculator
-        mock_tools.return_value = [calc_tool]
-        saver = InMemorySaver()
-        mock_checkpoint.return_value = saver
-
-        orch = ChatAgentOrchestrator(self.session)
-        self.assertEqual(len(orch.tools), 1)
-        self.assertEqual(orch.tools[0].name, "calculator")
-
-    @patch("chatbot.services.agent_service.get_checkpointer")
-    @patch("chatbot.services.agent_service.load_tools_for_user")
-    def test_agent_config_has_thread_id(self, mock_tools, mock_checkpoint):
-        """Agent config maps thread_id to session UUID."""
-        mock_tools.return_value = []
-        mock_checkpoint.return_value = InMemorySaver()
-
-        orch = ChatAgentOrchestrator(self.session)
-
-        self.assertEqual(
-            orch.config["configurable"]["thread_id"],
-            str(self.session.id),
-        )
+        # Cleanup
+        mod._checkpointer = None
 
 
 # ---------------------------------------------------------------------------
@@ -508,6 +644,9 @@ class TestRunChatCommand(ChatbotTestMixin, TestCase):
         session = self.create_session(self.user)
 
         with patch(
+            "chatbot.services.agent_service.ChatAgentOrchestrator.__init__",
+            return_value=None,
+        ), patch(
             "chatbot.services.agent_service.ChatAgentOrchestrator.invoke"
         ) as mock_invoke:
             mock_invoke.return_value = {
@@ -532,6 +671,9 @@ class TestRunChatCommand(ChatbotTestMixin, TestCase):
     def test_non_interactive_creates_session(self):
         """run_chat creates a new session if --session is not provided."""
         with patch(
+            "chatbot.services.agent_service.ChatAgentOrchestrator.__init__",
+            return_value=None,
+        ), patch(
             "chatbot.services.agent_service.ChatAgentOrchestrator.invoke"
         ) as mock_invoke:
             mock_invoke.return_value = {
@@ -549,7 +691,6 @@ class TestRunChatCommand(ChatbotTestMixin, TestCase):
                 stdout=out,
             )
 
-        # A new session should have been created
         self.assertTrue(ChatSession.objects.filter(user=self.user).exists())
 
     def test_history_flag_prints_history(self):
@@ -557,7 +698,11 @@ class TestRunChatCommand(ChatbotTestMixin, TestCase):
         session = self.create_session(self.user)
 
         with patch(
-            "chatbot.services.agent_service.ChatAgentOrchestrator.get_history_display"
+            "chatbot.services.agent_service.ChatAgentOrchestrator.__init__",
+            return_value=None,
+        ), patch(
+            "chatbot.services.agent_service.ChatAgentOrchestrator"
+            ".get_history_display"
         ) as mock_history:
             mock_history.return_value = [
                 {"role": "human", "content": "Hi"},
@@ -583,7 +728,11 @@ class TestRunChatCommand(ChatbotTestMixin, TestCase):
         session = self.create_session(self.user)
 
         with patch(
-            "chatbot.services.agent_service.ChatAgentOrchestrator.get_history_display"
+            "chatbot.services.agent_service.ChatAgentOrchestrator.__init__",
+            return_value=None,
+        ), patch(
+            "chatbot.services.agent_service.ChatAgentOrchestrator"
+            ".get_history_display"
         ) as mock_history:
             mock_history.return_value = []
 
@@ -601,7 +750,9 @@ class TestRunChatCommand(ChatbotTestMixin, TestCase):
 
     def test_invalid_user_raises_error(self):
         """run_chat with invalid --user raises CommandError."""
-        with self.assertRaises(Exception):
+        from django.core.management.base import CommandError
+
+        with self.assertRaises(CommandError):
             call_command(
                 "run_chat",
                 user="nonexistent@test.com",
@@ -610,7 +761,9 @@ class TestRunChatCommand(ChatbotTestMixin, TestCase):
 
     def test_invalid_session_raises_error(self):
         """run_chat with invalid --session raises CommandError."""
-        with self.assertRaises(Exception):
+        from django.core.management.base import CommandError
+
+        with self.assertRaises(CommandError):
             call_command(
                 "run_chat",
                 user=self.user.email,
@@ -624,6 +777,9 @@ class TestRunChatCommand(ChatbotTestMixin, TestCase):
         self.user.save()
 
         with patch(
+            "chatbot.services.agent_service.ChatAgentOrchestrator.__init__",
+            return_value=None,
+        ), patch(
             "chatbot.services.agent_service.ChatAgentOrchestrator.invoke"
         ) as mock_invoke:
             mock_invoke.return_value = {
@@ -642,6 +798,9 @@ class TestRunChatCommand(ChatbotTestMixin, TestCase):
     def test_custom_model_flag(self):
         """run_chat --model overrides the default model."""
         with patch(
+            "chatbot.services.agent_service.ChatAgentOrchestrator.__init__",
+            return_value=None,
+        ), patch(
             "chatbot.services.agent_service.ChatAgentOrchestrator.invoke"
         ) as mock_invoke:
             mock_invoke.return_value = {
@@ -660,13 +819,16 @@ class TestRunChatCommand(ChatbotTestMixin, TestCase):
                 stdout=out,
             )
 
-        # Verify session was created with the custom model
         session = ChatSession.objects.filter(user=self.user).first()
+        self.assertIsNotNone(session)
         self.assertEqual(session.model_name, "gpt-4o")
 
     def test_custom_temperature_flag(self):
         """run_chat --temperature overrides the default temperature."""
         with patch(
+            "chatbot.services.agent_service.ChatAgentOrchestrator.__init__",
+            return_value=None,
+        ), patch(
             "chatbot.services.agent_service.ChatAgentOrchestrator.invoke"
         ) as mock_invoke:
             mock_invoke.return_value = {
@@ -686,11 +848,15 @@ class TestRunChatCommand(ChatbotTestMixin, TestCase):
             )
 
         session = ChatSession.objects.filter(user=self.user).first()
+        self.assertIsNotNone(session)
         self.assertEqual(session.temperature, 0.1)
 
     def test_agent_error_in_non_interactive(self):
         """run_chat prints error and exits on agent failure."""
         with patch(
+            "chatbot.services.agent_service.ChatAgentOrchestrator.__init__",
+            return_value=None,
+        ), patch(
             "chatbot.services.agent_service.ChatAgentOrchestrator.invoke"
         ) as mock_invoke:
             mock_invoke.side_effect = Exception("OpenAI API error")
