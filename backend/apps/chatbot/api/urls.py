@@ -8,6 +8,7 @@ URL discovery.  Mounted at /api/v1/chatbot/ in config/urls.py.
 from rest_framework.routers import DefaultRouter
 
 from .views import (
+    ChatAgentViewSet,
     ChatSessionViewSet,
     UserPreferenceViewSet,
     TokenUsageViewSet,
@@ -19,6 +20,9 @@ from .views import (
 )
 
 router = DefaultRouter()
+
+# ── Chat Agent ───────────────────────────────────────────────────────
+router.register(r"chat-agent", ChatAgentViewSet, basename="chat-agent")
 
 # ── Core conversation ────────────────────────────────────────────────
 router.register(r"chat-sessions", ChatSessionViewSet, basename="chat-session")
