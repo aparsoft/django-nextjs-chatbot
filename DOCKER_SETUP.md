@@ -42,7 +42,7 @@ sudo apt update && sudo apt upgrade -y
 # Open WSL terminal
 wsl
 
-# Verify Docker works
+# Optional: Just to Verify Docker works
 docker --version
 docker compose version
 docker run hello-world
