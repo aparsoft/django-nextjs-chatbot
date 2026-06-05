@@ -19,7 +19,7 @@ Usage:
     python manage.py run_chat --temperature 0.3
 
     # Non-interactive (single message)
-    python manage.py run_chat --message "What is LangGraph?" --model gpt-4o-mini
+    python manage.py run_chat --message "What is Python and Django?" --model gpt-4o-mini
 
     # Show conversation history for a session
     python manage.py run_chat --session <uuid> --history
