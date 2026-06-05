@@ -1,0 +1,9 @@
+node_modules
+.next
+*.log
+.env
+__pycache__/
+*.pyc
+.git
+Dockerfile*
+README.md
