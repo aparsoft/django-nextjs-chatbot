@@ -1,5 +1,52 @@
 """
-User API Key Model - Store encrypted API keys for AI providers.
+User API Key model — encrypted storage for third-party AI provider keys.
+
+This module defines :class:`UserAPIKey`, which lets users supply their own
+OpenAI / Anthropic / Google etc. API keys instead of consuming platform
+credits.  Keys are encrypted at rest using Fernet (``cryptography`` library)
+and never exposed in API responses — only the ``key_prefix`` (first 8 chars)
+is stored in plaintext for identification.
+
+Key design decisions
+--------------------
+- **Fernet encryption at rest** — :meth:`encrypt_api_key` /
+  :meth:`decrypt_api_key` wrap the ``cryptography.fernet.Fernet`` API.
+  The encryption key comes from ``settings.API_KEY_ENCRYPTION_KEY``; if
+  absent, a key is generated on the fly (dev-only — production must set
+  the setting).
+- **``unique_together = ["user", "provider", "key_name"]``** — a user can
+  have multiple keys per provider, but each must have a distinct name.
+- **Provider validation** — :meth:`validate_key` calls the provider's API
+  (e.g., ``client.models.list()``) to verify the key works before marking
+  ``is_validated = True``.
+- **Usage & quota tracking** — :meth:`check_limits` queries
+  :class:`TokenUsage` to enforce daily/monthly token caps; :meth:`rotate_key`
+  re-encrypts a replacement key and resets validation.
+- **Soft delete** — :meth:`deactivate` sets ``is_active=False`` rather than
+  deleting the row.
+
+Typical usage
+-------------
+::
+
+    # Create and encrypt a new key
+    key = UserAPIKey(user=user, provider="openai", key_name="My Key")
+    key.encrypt_api_key("sk-proj-abc123...")
+    key.save()
+
+    # Retrieve the decrypted key for an API call
+    plaintext = key.decrypt_api_key()
+
+    # Validate with the provider
+    result = key.validate_key()
+    # → {"valid": True, "error": None}
+
+    # Get the best key for a provider (default → most recent → any)
+    key = UserAPIKey.get_any_active_key(user, "openai")
+
+Models defined
+--------------
+- :class:`UserAPIKey` — per-user, per-provider encrypted API key with quotas.
 """
 
 from django.db import models
