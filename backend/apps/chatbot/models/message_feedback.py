@@ -1,5 +1,52 @@
 """
-Message Feedback Model - User ratings and feedback on AI responses.
+Message Feedback model — user ratings and issue reports on AI responses.
+
+This module defines :class:`MessageFeedback`, which captures thumbs-up/down
+ratings, detailed text feedback, issue categories, and admin review state for
+individual AI-generated messages.  It links to :class:`ChatSession` and
+identifies the target message via LangGraph ``checkpoint_id`` +
+``message_index`` (the ``unique_together`` constraint prevents duplicate
+feedback per message per user).
+
+Key design decisions
+--------------------
+- **``unique_together = ["checkpoint_id", "message_index", "user"]``** —
+  one piece of feedback per message per user; attempting to create a
+  duplicate raises ``IntegrityError``.
+- **Admin review workflow** — ``reviewed``, ``reviewed_by``, ``action_taken``
+  fields support a triage pipeline.  Use :meth:`mark_reviewed` and
+  :meth:`escalate` to transition feedback through review states.
+- **Sentiment helpers** — :attr:`is_positive`, :attr:`is_negative`,
+  :attr:`sentiment_score` make it easy to aggregate feedback in analytics
+  dashboards without hard-coding rating strings.
+- **Class-method analytics** — :meth:`get_session_satisfaction`,
+  :meth:`get_user_satisfaction`, :meth:`get_overall_satisfaction`, and
+  :meth:`get_issue_breakdown` return ready-to-serialize dicts for admin
+  dashboards.
+
+Typical usage
+-------------
+::
+
+    # Create feedback (thin viewset calls this)
+    fb = MessageFeedback.create_feedback(
+        user=request.user,
+        chat_session=session,
+        checkpoint_id=state["checkpoint_id"],
+        message_index=msg_idx,
+        rating="thumbs_up",
+    )
+
+    # Admin review
+    fb.mark_reviewed(admin_user, action_taken="noted", admin_notes="Looks good")
+
+    # Analytics
+    stats = MessageFeedback.get_session_satisfaction(session)
+    issues = MessageFeedback.get_issue_breakdown()
+
+Models defined
+--------------
+- :class:`MessageFeedback` — per-message user feedback with admin review.
 """
 
 from django.db import models
