@@ -258,7 +258,10 @@ SPECTACULAR_SETTINGS = {
     "SCHEMA_PATH_PREFIX": r"/api/v[0-9]+/",
     # ----- Tags for grouping in Swagger UI -----
     "TAGS": [
-        {"name": "Authentication", "description": "Login, logout, registration, password management"},
+        {
+            "name": "Authentication",
+            "description": "Login, logout, registration, password management",
+        },
         {"name": "Users", "description": "User account CRUD and profile actions"},
         {"name": "User Contacts", "description": "User contact information"},
         {"name": "Profile", "description": "Avatar and profile picture management"},
@@ -296,17 +299,14 @@ SIMPLE_JWT = {
     # Refresh: 1 day (httpOnly cookie, never exposed to JS)
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=5),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
-
     # Token rotation — new refresh token on every refresh
     "ROTATE_REFRESH_TOKENS": True,
     # Do NOT blacklist after rotation — avoids race conditions with
     # parallel BFF proxy refresh requests. Logout still explicitly
     # blacklists via token.blacklist().
     "BLACKLIST_AFTER_ROTATION": False,
-
     # Avoid DB write on every login
     "UPDATE_LAST_LOGIN": False,
-
     # Signing
     "ALGORITHM": "HS256",
     "SIGNING_KEY": config("DJANGO_SECRET_KEY", default="dev-only-signing-key"),
@@ -316,7 +316,6 @@ SIMPLE_JWT = {
     "AUTH_TOKEN_CLASSES": ("rest_framework_simplejwt.tokens.AccessToken",),
     "TOKEN_TYPE_CLAIM": "token_type",
     "JTI_CLAIM": "jti",
-
     # Cookie settings (used by CustomJWTCookieAuthentication for direct API access)
     "AUTH_COOKIE": "access_token",
     "AUTH_COOKIE_REFRESH": "refresh_token",
