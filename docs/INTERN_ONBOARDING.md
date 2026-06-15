@@ -293,6 +293,7 @@ python manage.py shell
 
 # Superuser
 python manage.py createsuperuser         # Create admin user
+python manage.py changepassword <username>  # Reset admin password
 
 # Static files
 python manage.py collectstatic           # Gather static files
@@ -646,6 +647,55 @@ kill -9 <PID>
 # Or use a different port
 python manage.py runserver 8001
 ```
+
+### "Forgot Admin Password"
+
+**Method 1: Using the `changepassword` management command** (recommended)
+
+If you know the admin username, this is the cleanest approach:
+
+```bash
+python manage.py changepassword <username>
+```
+
+You'll be prompted to input and confirm the new password:
+```
+Changing password for user '<username>'
+Password:
+Password (again):
+Password changed successfully for user '<username>'
+```
+
+**Method 2: Using the Django interactive shell**
+
+If you forgot the exact admin username, use the shell to find it and reset the password:
+
+```bash
+python manage.py shell
+```
+
+```python
+from django.contrib.auth import get_user_model
+User = get_user_model()
+
+# List all superuser usernames if you forgot yours
+print(User.objects.filter(is_superuser=True).values_list('username', flat=True))
+
+# Fetch the user and reset password
+user = User.objects.get(username='your_admin_username')
+user.set_password('your_new_secure_password')
+user.save()
+```
+
+**Method 3: Emergency fallback — create a new superuser**
+
+If the existing account is locked out or corrupted, create a parallel admin account:
+
+```bash
+python manage.py createsuperuser
+```
+
+Follow the prompts to set a new username, email, and password. Once logged into Django Admin, you can inspect, edit, or delete the old admin profile from there.
 
 ### Migration errors
 ```bash
