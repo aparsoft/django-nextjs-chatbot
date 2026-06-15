@@ -2,44 +2,40 @@
 Chatbot Models Package
 
 This package contains all Django models for the AI chatbot application.
+Each model follows the "fatty model, thin viewset" pattern — business
+logic lives on the model, and viewsets delegate to class/instance methods.
 
-Model Organization:
--------------------
-1. ChatSession - User conversation threads (maps to LangGraph thread_id)
-2. UserPreference - AI settings and user preferences
-3. TokenUsage - Track AI token consumption and costs
-4. MessageFeedback - User ratings and feedback on AI responses
-5. UserDocument - File uploads for RAG (Retrieval Augmented Generation)
-6. SystemPromptTemplate - Reusable system prompts
-7. UserTool - Custom tools/functions users can enable
-8. UserAPIKey - Encrypted user API keys
+Model index
+-----------
+- :class:`ChatSession`       — conversation metadata mapped to LangGraph threads
+- :class:`UserPreference`    — per-user AI settings and session defaults
+- :class:`TokenUsage`         — per-request token counts, costs, and analytics
+- :class:`MessageFeedback`    — user ratings and issue reports on AI messages
+- :class:`UserDocument`       — uploaded file metadata with RAG processing state
+- :class:`SystemPromptTemplate` — named, parameterised system prompts
+- :class:`UserTool`           — per-user tool enable/disable and configuration
+- :class:`UserAPIKey`         — encrypted third-party API keys with quotas
 
-Important Notes:
-----------------
-- Message history is stored by LangGraph's PostgresCheckpointer (PG_CHECKPOINT_URI)
-- Document embeddings are stored in pgvector (PGVECTOR_CONNECTION_STRING)
-- These Django models store metadata, user preferences, and analytics
-- Don't duplicate what LangGraph already manages!
-- Tool definitions live in TOOL_REGISTRY (user_tool.py), NOT in a separate model
-
-Architecture:
--------------
-Django Models (this package):
-  ✓ User-facing metadata (titles, descriptions)
+Data ownership split
+--------------------
+Django models (this package):
+  ✓ User-facing metadata (titles, descriptions, tags)
   ✓ User preferences and settings
-  ✓ Usage tracking and billing
-  ✓ Tool configurations
-  ✓ File upload metadata
+  ✓ Usage tracking, billing, and quotas
+  ✓ Tool configurations and API keys
+  ✓ File upload metadata and processing state
   ✓ Feedback and analytics
 
-LangGraph Checkpointer (PG_CHECKPOINT_URI):
+LangGraph Checkpointer (``langchain_history`` database):
   ✓ Message history and conversation state
   ✓ Thread/checkpoint management
-  ✓ Automatic summarization
+  ✓ Automatic summarisation
 
-PGVector Store (PGVECTOR_CONNECTION_STRING):
+PGVector store (``langchain_pgvector`` database):
   ✓ Document embeddings for RAG
   ✓ Semantic search on documents
+
+Important: don't duplicate what LangGraph or pgvector already manages!
 """
 
 # Core conversation models
@@ -61,19 +57,16 @@ from .user_api_key import UserAPIKey
 # Export all models
 __all__ = [
     # Core
-    'ChatSession',
-    'UserPreference',
-    'MessageFeedback',
-
+    "ChatSession",
+    "UserPreference",
+    "MessageFeedback",
     # Analytics
-    'TokenUsage',
-
+    "TokenUsage",
     # RAG
-    'UserDocument',
-
+    "UserDocument",
     # Configuration
-    'SystemPromptTemplate',
-    'UserTool',
-    'TOOL_REGISTRY',
-    'UserAPIKey',
+    "SystemPromptTemplate",
+    "UserTool",
+    "TOOL_REGISTRY",
+    "UserAPIKey",
 ]
