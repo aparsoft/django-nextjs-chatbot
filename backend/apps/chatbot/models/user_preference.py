@@ -1,5 +1,43 @@
 """
-User Preference Model - AI chatbot settings and preferences.
+User Preference model — per-user AI chatbot defaults and settings.
+
+This module defines :class:`UserPreference`, a ``OneToOneField`` model that
+stores every user's default model, temperature, summarization style, UI
+theme, usage limits, and privacy toggles.  It also provides the
+``PREFERENCE_DEFAULTS`` constant used by :meth:`reset_to_defaults` and
+:meth:`get_default_config`.
+
+Key design decisions
+--------------------
+- **OneToOneField** ensures exactly one preference row per user.
+- **``get_or_create_for_user``** class method makes it safe to call from
+  anywhere — it creates defaults on first access.
+- **``get_session_config``** produces the dict that
+  :meth:`ChatSession.create_for_user` consumes, keeping the hand-off
+  between preferences and sessions explicit.
+- **``get_effective_system_prompt``** resolves prompt priority:
+  custom user prompt → template → platform default.
+
+Typical usage
+-------------
+::
+
+    # First access (creates with defaults)
+    prefs = UserPreference.get_or_create_for_user(user)
+
+    # Derive session config
+    config = prefs.get_session_config()
+    session = ChatSession.create_for_user(user, preferences=prefs)
+
+    # Reset to platform defaults
+    prefs.reset_to_defaults()
+
+    # Bulk update from serializer validated_data
+    prefs.update_from_dict({"default_model": "gpt-5-nano", "theme": "dark"})
+
+Models defined
+--------------
+- :class:`UserPreference` — per-user AI settings and session defaults.
 """
 
 from django.db import models
