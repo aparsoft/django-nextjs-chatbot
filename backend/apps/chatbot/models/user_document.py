@@ -1,5 +1,52 @@
 """
-User Document Model - File uploads for RAG (Retrieval Augmented Generation).
+User Document model — file uploads for RAG (Retrieval-Augmented Generation).
+
+This module defines :class:`UserDocument`, which tracks user-uploaded files
+destined for pgvector embedding.  The model stores **file metadata and
+processing state**; the actual vector embeddings live in the
+``langchain_pgvector`` database and are referenced by
+``vector_collection_name`` and ``vector_store_ids``.
+
+Key design decisions
+--------------------
+- **State machine** — ``processing_status`` transitions through
+  ``pending → processing → completed`` (or ``failed``).  Use
+  :meth:`mark_processing_started`, :meth:`mark_processing_completed`, and
+  :meth:`mark_processing_failed` to transition; :meth:`can_retry_processing`
+  guards against exceeding ``MAX_RETRIES``.
+- **Soft delete** — :meth:`deactivate` sets ``is_active=False`` instead of
+  deleting the row, preserving analytics and allowing :meth:`reactivate`.
+- **Factory method** — :meth:`create_from_upload` extracts metadata from a
+  Django ``UploadedFile`` and creates the row in ``pending`` status, ready
+  for a Celery task to pick up.
+- **pgvector integration** — ``vector_collection_name`` and
+  ``vector_store_ids`` are the bridge to LangChain's PGVector store;
+  :meth:`get_vector_metadata` produces the filtering dict stored alongside
+  each chunk.
+
+Typical usage
+-------------
+::
+
+    # Upload (in viewset)
+    doc = UserDocument.create_from_upload(user, uploaded_file, session=session)
+
+    # Celery task picks it up
+    doc.mark_processing_started()
+    # ... LangChain embedding pipeline ...
+    doc.mark_processing_completed(
+        collection_name="user_123_docs",
+        vector_ids=["vec1", "vec2"],
+        chunk_count=42,
+    )
+
+    # Query
+    active_docs = UserDocument.get_user_documents(user)
+    stats = UserDocument.get_processing_stats(user)
+
+Models defined
+--------------
+- :class:`UserDocument` — uploaded file metadata with RAG processing state.
 """
 
 from django.db import models
