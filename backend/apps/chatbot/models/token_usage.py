@@ -1,5 +1,44 @@
 """
-Token Usage Model - Track AI token consumption and costs.
+Token Usage model — per-request tracking of AI token consumption and costs.
+
+This module defines :class:`TokenUsage`, which records every LLM API call's
+token counts, costs, and metadata.  It is the single source of truth for
+billing, quota enforcement, and analytics dashboards.
+
+Key design decisions
+--------------------
+- **Auto-calculated totals** — :meth:`save` computes ``total_tokens`` and
+  ``total_cost`` from the component fields so they are always consistent.
+- **Per-model pricing** — :meth:`calculate_cost` uses a hard-coded
+  ``PRICING`` dict (per 1M tokens) keyed by model name; unknown models
+  fall back to ``gpt-4o-mini`` rates.
+- **Factory method** — :meth:`create_from_response` extracts usage data
+  from OpenAI/Anthropic response objects and creates the row in one call,
+  keeping viewsets thin.
+- **Quota enforcement** — :meth:`check_user_limits` queries today's usage
+  against :class:`UserPreference` daily limits and returns a simple
+  ``{allowed, reason}`` dict that viewsets can act on.
+
+Typical usage
+-------------
+::
+
+    # After an LLM call (in viewset or service)
+    usage = TokenUsage.create_from_response(user, session, response, response_time_ms=420)
+
+    # Check quota before making a call
+    result = TokenUsage.check_user_limits(user, additional_tokens=500)
+    if not result["allowed"]:
+        raise QuotaExceeded(result["reason"])
+
+    # Analytics
+    today = TokenUsage.get_user_usage_today(user)
+    breakdown = TokenUsage.get_model_breakdown(user)
+    trend = TokenUsage.get_daily_cost_trend(user, days=30)
+
+Models defined
+--------------
+- :class:`TokenUsage` — per-request token counts, costs, and metadata.
 """
 
 from django.db import models
