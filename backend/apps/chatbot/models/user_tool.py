@@ -1,13 +1,58 @@
 """
-User Tool Model - Custom tools/functions users can enable.
+User Tool model — per-user enable/disable and configuration for AI tools.
 
-Tools are defined in code (see TOOL_REGISTRY below) and users can
-enable/disable them with per-user configuration.
+This module defines :class:`UserTool` and the :data:`TOOL_REGISTRY` constant
+that serves as the single source of truth for available tools.  Users opt in
+to tools by enabling them; configuration is a per-user JSON override that
+merges with registry defaults via :meth:`get_effective_config`.
 
-AvailableTool was intentionally removed — for an intern onboarding project,
-tool definitions belong in code (management commands / constants), not a
-separate DB table.  This keeps the model count down and teaches the
-"code-first configuration" pattern.
+Key design decisions (For phase-I interns)
+--------------------
+- **Code-first registry** — :data:`TOOL_REGISTRY` is a Python dict, not a
+  database table.  New tools are added in code and seeded to users via
+  :meth:`seed_all_tools` (typically from a management command).  This
+  avoids a separate ``AvailableTool`` model and teaches the "code-first
+  configuration" pattern.
+- **``unique_together = ["user", "tool_name"]``** — one config row per
+  user per tool; :meth:`enable_tool` uses ``get_or_create`` to stay
+  idempotent.
+- **Config merging** — :meth:`get_effective_config` shallow-merges
+  ``TOOL_REGISTRY`` defaults with the user's ``configuration`` JSON so
+  users only need to override the keys they care about.
+- **Rate limiting** — :meth:`check_rate_limit` counts recent
+  :class:`TokenUsage` rows to enforce per-minute/hour/day caps.
+
+Typical usage
+-------------
+::
+
+    # Seed all tools for a new user (all disabled by default)
+    UserTool.seed_all_tools(user)
+
+    # Enable a specific tool
+    tool = UserTool.enable_tool(user, "web_search")
+
+    # Get merged config for LangGraph
+    config = tool.get_effective_config()
+    # → {"max_results": 5}
+
+    # Bulk enable
+    UserTool.bulk_enable(user, ["web_search", "calculator"])
+
+    # Check rate limit before invoking
+    status = tool.check_rate_limit()
+    if not status["allowed"]:
+        raise RateLimitExceeded(...)
+
+Constants defined
+------------------
+- :data:`TOOL_REGISTRY` — dict mapping tool names to display metadata and
+  default config.
+- :data:`TOOL_CATEGORY_CHOICES` — choices for the ``category`` field.
+
+Models defined
+--------------
+- :class:`UserTool` — per-user tool enable/disable state and configuration.
 """
 
 from django.db import models
@@ -243,7 +288,9 @@ class UserTool(TimestampedModel):
             "icon": self.icon,
             "is_enabled": self.is_enabled,
             "usage_count": self.usage_count,
-            "last_used_at": self.last_used_at.isoformat() if self.last_used_at else None,
+            "last_used_at": (
+                self.last_used_at.isoformat() if self.last_used_at else None
+            ),
         }
 
     def check_rate_limit(self):
@@ -313,9 +360,7 @@ class UserTool(TimestampedModel):
     @classmethod
     def get_enabled_for_user(cls, user):
         """Get enabled + approved tools for a user (ready to use with LangGraph)."""
-        return list(
-            cls.objects.filter(user=user, is_enabled=True, is_approved=True)
-        )
+        return list(cls.objects.filter(user=user, is_enabled=True, is_approved=True))
 
     @classmethod
     def get_tool_config(cls, user, tool_name):
@@ -360,7 +405,8 @@ class UserTool(TimestampedModel):
                 "category": registry_entry["category"],
                 "icon": registry_entry.get("icon", ""),
                 "is_enabled": True,
-                "configuration": configuration or registry_entry.get("default_config", {}),
+                "configuration": configuration
+                or registry_entry.get("default_config", {}),
             },
         )
 
