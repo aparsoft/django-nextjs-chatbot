@@ -39,15 +39,11 @@ class FeedbackSentimentFilter(admin.SimpleListFilter):
 
     def queryset(self, request, queryset):
         if self.value() == "positive":
-            return queryset.filter(
-                rating__in=["thumbs_up", "excellent", "good"]
-            )
+            return queryset.filter(rating__in=["thumbs_up", "excellent", "good"])
         if self.value() == "neutral":
             return queryset.filter(rating="neutral")
         if self.value() == "negative":
-            return queryset.filter(
-                rating__in=["thumbs_down", "poor", "very_poor"]
-            )
+            return queryset.filter(rating__in=["thumbs_down", "poor", "very_poor"])
         return queryset
 
 
@@ -70,8 +66,7 @@ class IssueReportedFilter(admin.SimpleListFilter):
             )
         if self.value() == "no":
             return queryset.filter(
-                models.Q(reported_issue__isnull=True)
-                | models.Q(reported_issue="")
+                models.Q(reported_issue__isnull=True) | models.Q(reported_issue="")
             )
         return queryset
 
@@ -187,9 +182,7 @@ class MessageFeedbackAdmin(admin.ModelAdmin):
         (
             _("Analytics"),
             {
-                "fields": (
-                    "satisfaction_summary_display",
-                ),
+                "fields": ("satisfaction_summary_display",),
                 "classes": ("collapse",),
             },
         ),
@@ -316,7 +309,8 @@ class MessageFeedbackAdmin(admin.ModelAdmin):
             )
             count += 1
         self.message_user(
-            request, _("%(count)d feedback item(s) marked as reviewed.") % {"count": count}
+            request,
+            _("%(count)d feedback item(s) marked as reviewed.") % {"count": count},
         )
 
     action_mark_reviewed.short_description = _("Mark as reviewed")
@@ -335,7 +329,8 @@ class MessageFeedbackAdmin(admin.ModelAdmin):
             )
             count += 1
         self.message_user(
-            request, _("%(count)d feedback item(s) noted for training.") % {"count": count}
+            request,
+            _("%(count)d feedback item(s) noted for training.") % {"count": count},
         )
 
     action_mark_noted.short_description = _("Mark as noted for training")
