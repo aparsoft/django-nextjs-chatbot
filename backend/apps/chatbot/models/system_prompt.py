@@ -1,5 +1,46 @@
 """
-System Prompt Template Model - Reusable system prompts for AI.
+System Prompt Template model — reusable, parameterised system prompts for AI.
+
+This module defines :class:`SystemPromptTemplate`, which stores named,
+categorised system prompts with optional ``{variable}`` placeholders that
+are rendered at runtime via :meth:`render`.  Templates can be public
+(shared across all users) or private, and exactly one can be marked as
+the platform default (``is_default``).
+
+Key design decisions
+--------------------
+- **SlugField + unique name** — ``slug`` is auto-populated from ``name``
+  in the admin (``prepopulated_fields``) and used as a stable lookup key.
+- **Variable templating** — ``variables`` declares the placeholders;
+  :meth:`render` does simple ``{key}`` substitution; :meth:`validate_variables`
+  checks for missing or extra keys.
+- **Single default invariant** — :meth:`set_as_default` atomically clears
+  the previous default before setting the new one, so only one template
+  is ever ``is_default=True``.
+- **Analytics** — ``usage_count``, ``rating_sum``, ``rating_count`` are
+  denormalised counters updated via :meth:`increment_usage` and
+  :meth:`add_rating`.
+
+Typical usage
+-------------
+::
+
+    # Get the default template
+    template = SystemPromptTemplate.get_default()
+
+    # Render with variables
+    prompt = template.render({"user_name": "Alice", "topic": "Python"})
+
+    # Validate before rendering
+    result = template.validate_variables({"user_name": "Alice"})
+    # → {"valid": False, "missing": ["topic"], "extra": []}
+
+    # Search
+    templates = SystemPromptTemplate.search_templates("coding")
+
+Models defined
+--------------
+- :class:`SystemPromptTemplate` — named, categorised prompt with variable support.
 """
 
 from django.db import models
