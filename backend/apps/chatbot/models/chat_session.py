@@ -1,8 +1,42 @@
 """
-Chat Session Model - Maps to LangGraph threads with user-facing metadata.
+Chat Session model — the bridge between Django metadata and LangGraph threads.
 
-This model doesn't store messages (LangGraph checkpointer does that).
-It stores user-friendly metadata about conversations like titles and settings.
+This module defines :class:`ChatSession`, the primary model for tracking
+conversation sessions.  It stores **user-facing metadata** (titles, tags,
+analytics) while the actual message history lives in LangGraph's
+PostgresCheckpointer (``langchain_history`` database).
+
+Key design decisions
+--------------------
+- **UUID primary key** doubles as the LangGraph ``thread_id``, so there is
+  a 1:1 mapping between a Django session row and a LangGraph thread.
+- **Fatty model, thin viewset** — all business logic (creation defaults,
+  state transitions, analytics) lives on the model; viewsets call class
+  methods like :meth:`create_for_user` and :meth:`get_active_for_user`.
+- **Soft delete** — :meth:`soft_delete` archives and clears sensitive
+  metadata instead of removing the row, preserving analytics.
+
+Typical usage
+-------------
+::
+
+    # Create a session (pulls defaults from UserPreference)
+    session = ChatSession.create_for_user(user, title="My Chat")
+
+    # Pass the thread_id to LangGraph
+    config = session.get_langgraph_config()
+    response = agent.invoke({"messages": [msg]}, config)
+
+    # Update analytics after each exchange
+    session.update_analytics(message_count=2, tokens_used=150)
+
+    # Query sessions
+    active = ChatSession.get_active_for_user(user)
+    stats   = ChatSession.get_session_stats(user)
+
+Models defined
+--------------
+- :class:`ChatSession` — conversation metadata mapped to a LangGraph thread.
 """
 
 from django.db import models
