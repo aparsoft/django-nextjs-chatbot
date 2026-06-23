@@ -17,6 +17,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from rest_framework_simplejwt.token_blacklist.models import OutstandingToken
 from rest_framework_simplejwt.tokens import RefreshToken
 from accounts.api.serializers.auth_serializers import CustomTokenRefreshSerializer
+from accounts.services.cookies import set_auth_cookies, clear_auth_cookies
 from django.contrib.auth import get_user_model
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import ensure_csrf_cookie
@@ -129,8 +130,9 @@ class CustomTokenObtainPairView(TokenObtainPairView):
                 status=status.HTTP_200_OK,
             )
 
-            # Set secure HTTP-only cookies
-            self._set_auth_cookies(response, data)
+            # Set secure HTTP-only cookies via the centralized helper.
+            # This reads max-ages from SIMPLE_JWT so they always match the JWT lifetimes.
+            set_auth_cookies(response, access=data["access"], refresh=data["refresh"])
 
             logger.info(f"Successful login: {user.email} (role={user.role})")
             return response
@@ -191,32 +193,6 @@ class CustomTokenObtainPairView(TokenObtainPairView):
                 ),
             },
         }
-
-    def _set_auth_cookies(self, response: Response, token_data: Dict[str, Any]) -> None:
-        """Set secure HTTP-only authentication cookies."""
-        cookie_settings = {
-            "httponly": True,
-            "samesite": "Lax",
-            "secure": not settings.DEBUG,
-            "path": "/",
-        }
-
-        response.set_cookie(
-            "refresh_token",
-            token_data["refresh"],
-            max_age=7 * 24 * 60 * 60,
-            **cookie_settings,
-        )
-        response.set_cookie(
-            "access_token", token_data["access"], max_age=60 * 60, **cookie_settings
-        )
-        response.set_cookie(
-            "auth_state",
-            "authenticated",
-            httponly=False,
-            max_age=7 * 24 * 60 * 60,
-            **{k: v for k, v in cookie_settings.items() if k != "httponly"},
-        )
 
     def _check_profile_completion(self, user: CustomUser) -> Dict[str, Any]:
         """Check if user profile is complete and what steps are needed."""
@@ -342,8 +318,7 @@ class LogoutView(APIView):
             {"message": message, "code": code, "status": "success"},
             status=status.HTTP_200_OK,
         )
-        for cookie in ["auth_state", "access_token", "refresh_token", "csrftoken"]:
-            response.delete_cookie(cookie, path="/")
+        clear_auth_cookies(response)
         return response
 
 
@@ -366,34 +341,12 @@ class CustomTokenRefreshView(TokenRefreshView):
     def post(self, request, *args, **kwargs):
         response = super().post(request, *args, **kwargs)
 
-        # If token rotation is enabled, update the refresh cookie
-        if "refresh" in response.data:
-            cookie_max_age = settings.SIMPLE_JWT.get(
-                "AUTH_COOKIE_REFRESH_MAX_AGE", 86400
-            )
-            response.set_cookie(
-                key="refresh_token",
-                value=response.data["refresh"],
-                max_age=cookie_max_age,
-                httponly=settings.SIMPLE_JWT.get("AUTH_COOKIE_HTTP_ONLY", True),
-                secure=settings.SIMPLE_JWT.get("AUTH_COOKIE_SECURE", not settings.DEBUG),
-                samesite=settings.SIMPLE_JWT.get("AUTH_COOKIE_SAMESITE", "Lax"),
-                path="/",
-            )
-
-        # Update access token cookie
-        if "access" in response.data:
-            cookie_max_age = settings.SIMPLE_JWT.get(
-                "AUTH_COOKIE_ACCESS_MAX_AGE", 300
-            )
-            response.set_cookie(
-                key="access_token",
-                value=response.data["access"],
-                max_age=cookie_max_age,
-                httponly=settings.SIMPLE_JWT.get("AUTH_COOKIE_HTTP_ONLY", True),
-                secure=settings.SIMPLE_JWT.get("AUTH_COOKIE_SECURE", not settings.DEBUG),
-                samesite=settings.SIMPLE_JWT.get("AUTH_COOKIE_SAMESITE", "Lax"),
-                path="/",
-            )
+        # Use the centralized helper — reads max-ages from SIMPLE_JWT so they
+        # always match the JWT lifetimes. Handles rotation (new refresh token).
+        set_auth_cookies(
+            response,
+            access=response.data.get("access"),
+            refresh=response.data.get("refresh"),
+        )
 
         return response
