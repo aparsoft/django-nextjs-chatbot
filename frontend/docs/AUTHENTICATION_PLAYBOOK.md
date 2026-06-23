@@ -1,8 +1,17 @@
-# Authentication Playbook — BFF Proxy Pattern
+# Authentication Playbook — Production-Grade BFF Proxy (Next.js 16 + Django DRF)
 
-> A step-by-step doc for interns to implement **Backend-for-Frontend (BFF) Proxy** authentication between the Next.js frontend and Django JWT backend. No code is included on purpose: this is the **plan**. You write the code.
+> A complete, copy-pasteable guide for interns to build a **production-grade** authentication system using the **Backend-for-Frontend (BFF) Proxy** pattern between a **Next.js 16 / React 19** frontend and a **Django REST Framework + SimpleJWT** backend.
 >
-> When you finish, the frontend will store tokens in **HttpOnly cookies** managed by Next.js Route Handlers. Django remains the sole identity authority. No third-party auth library sits between them.
+> When you finish, the frontend stores tokens in **HttpOnly cookies** managed by Next.js Route Handlers. The browser never sees a raw JWT. Django stays the sole identity authority — no third-party auth library (Auth.js/NextAuth) sits between them.
+
+### Who this is for & how to use it
+
+- **Audience:** interns and engineers wiring up the web client for the first time.
+- **Stack this targets (verified against this repo):**
+  - Frontend: `next@16.2.6`, `react@19.2`, `vitest@4`, `tailwindcss@4`, path alias `@/* → frontend/` (see `jsconfig.json`).
+  - Backend: Django + DRF + `djangorestframework-simplejwt` with endpoints under `/api/v1/accounts/`.
+- **How to use:** Work through Section 4 **in order**. Every step ships real code and a `Verify` checkpoint. Do not skip ahead — each step builds on the previous one.
+- **Golden rule:** the browser talks **only** to Next.js (`/api/...`). Next.js talks to Django. Tokens live in HttpOnly cookies and never touch JavaScript.
 
 ---
 
@@ -72,13 +81,13 @@ Auth.js abstracts cookie management away. Modifying cookies dynamically from mid
 │   ┌──────────────────────────▼─────────────────────────────┐     │
 │   │  Route Handlers (app/api/)                              │     │
 │   │                                                         │     │
-│   │  /api/auth/login   → POST Django /auth/token/          │     │
+│   │  /api/auth/login   → POST /accounts/auth/login/        │     │
 │   │                      Set httpOnly cookies               │     │
 │   │                                                         │     │
-│   │  /api/auth/refresh → POST Django /auth/token/refresh/  │     │
-│   │                      Update cookies                     │     │
+│   │  /api/auth/refresh → POST /accounts/auth/refresh/      │     │
+│   │                      Rotate + update cookies            │     │
 │   │                                                         │     │
-│   │  /api/auth/logout  → POST Django /auth/token/blacklist/│     │
+│   │  /api/auth/logout  → POST /accounts/auth/logout/       │     │
 │   │                      Clear cookies                      │     │
 │   │                                                         │     │
 │   │  /api/proxy/[...path] → Read access_token cookie       │     │
@@ -99,12 +108,13 @@ Auth.js abstracts cookie management away. Modifying cookies dynamically from mid
 ┌──────────────────────────────────────────────────────────────────┐
 │                     Django Backend (unchanged)                    │
 │                                                                  │
-│   POST /api/v1/auth/token/           → { access, refresh }      │
-│   POST /api/v1/auth/token/refresh/   → { access, refresh }      │
-│   POST /api/v1/auth/token/blacklist/ → 200                      │
-│   GET  /api/v1/users/me/             → current user             │
-│   GET  /api/v1/*                     → resource APIs            │
-│   WS   ws/chat/{session_id}/         → WebSocket consumers      │
+│   POST /api/v1/accounts/auth/login/    → { data: { tokens, user } }│
+│   POST /api/v1/accounts/auth/refresh/  → { access, refresh }    │
+│   POST /api/v1/accounts/auth/logout/   → 200 (blacklists refresh)│
+│   POST /api/v1/accounts/auth/register/ → { user, tokens }       │
+│   GET  /api/v1/accounts/users/me/      → current user           │
+│   GET  /api/v1/*                       → resource APIs          │
+│   WS   ws/chat/{session_id}/?token=…   → WebSocket consumers     │
 │                                                                  │
 │   Django does not know or care that Next.js is a proxy.          │
 │   It sees standard JWT Bearer requests.                          │
@@ -124,23 +134,56 @@ The Django API remains **unified** — the React Native mobile app talks to the 
 
 ## 2. Prerequisites
 
-- Backend running on `http://localhost:8000`.
-- `next-auth` has been **removed** from `package.json` (it's not needed).
+- Backend running on `http://localhost:8000` with DRF + SimpleJWT.
+- `next-auth` is **not** installed (this repo never added it — keep it that way).
+- Node 20+, and `npm install` already run in `frontend/`.
 
-### Environment Variables
+### 2.1 Backend endpoint contract (verified against this repo)
 
-Update `frontend/.env.local`:
+These are the **actual** endpoints your Route Handlers will call. The base path is
+`/api/v1` and all auth lives under `/accounts/`. Do not invent `/auth/token/` paths —
+they don't exist here.
+
+| Purpose | Method & Path | Request body | Success response (relevant fields) |
+|---|---|---|---|
+| **Login** | `POST /api/v1/accounts/auth/login/` | `{ "email", "password" }` | `{ "data": { "tokens": { "access", "refresh" }, "user": {…}, "navigation": { "dashboard_route" } } }` |
+| **Refresh** | `POST /api/v1/accounts/auth/refresh/` | `{ "refresh" }` | `{ "access", "refresh" }` (new `refresh` because rotation is on) |
+| **Logout** | `POST /api/v1/accounts/auth/logout/` | `{ "refresh" }` | `200` (refresh token invalidated) |
+| **Register** | `POST /api/v1/accounts/auth/register/` | `{ "email", "password1", "password2", "first_name", "last_name" }` | `{ "user": {…}, "tokens": { "access", "refresh" } }` |
+| **Current user** | `GET /api/v1/accounts/users/me/` | — (Bearer) | `{ "id", "email", "first_name", "last_name", "full_name", "role", … }` |
+
+> **Login field is `email`, not `username`.** The custom `TokenObtainPairSerializer`
+> sets `username_field = User.EMAIL_FIELD`.
+
+**SimpleJWT settings you must mirror in `lib/cookies.js`:**
+
+| Setting | Value | Why it matters to you |
+|---|---|---|
+| `ACCESS_TOKEN_LIFETIME` | `5 minutes` | Access cookie `max-age = 300`. |
+| `REFRESH_TOKEN_LIFETIME` | `1 day` | Refresh cookie `max-age = 86400`. |
+| `ROTATE_REFRESH_TOKENS` | `True` | **Refresh returns a new refresh token** — you must overwrite the refresh cookie on every refresh. |
+| `BLACKLIST_AFTER_ROTATION` | `False` | The old refresh token is not instantly killed, which softens the classic race. Your process lock still prevents redundant calls. |
+| `AUTH_HEADER_TYPES` | `("Bearer",)` | Proxy injects `Authorization: Bearer <access>`. |
+
+> ℹ️ Django also sets its **own** `httpOnly` cookies on login. We ignore those — they
+> are set on the *server-to-server* fetch and never reach the browser. We read the
+> tokens out of the **JSON body** and set our **own** cookies under Next.js control.
+
+### 2.2 Environment Variables
+
+`frontend/.env.local` (already present in this repo):
 
 | Variable | Example | Purpose |
 |----------|---------|---------|
-| `NEXT_PUBLIC_API_URL` | `http://localhost:8000/api/v1` | Public-facing API base (used in client components for WS URLs, etc.) |
-| `INTERNAL_API_URL` | `http://localhost:8000/api/v1` | Server-side API base. Same in dev; different in Docker/production where Next.js and Django are on different networks. |
-| `NEXT_PUBLIC_WS_HOST` | `localhost:8000` | WebSocket host |
-| `AUTH_TRUST_HOST` | `true` | Trust the host behind a reverse proxy |
+| `NEXT_PUBLIC_API_URL` | `http://localhost:8000/api/v1` | Public base used by client code (e.g. building WS URLs). Exposed to the browser. |
+| `INTERNAL_API_URL` | `http://localhost:8000/api/v1` | Server-side base used by Route Handlers. Same in dev; in Docker/prod this becomes the internal service name (e.g. `http://backend:8000/api/v1`). |
+| `NEXT_PUBLIC_BASE_URL` | `http://localhost:8000` | Origin for non-API assets. |
+| `NEXT_PUBLIC_WS_HOST` | `localhost:8000` | WebSocket host (no scheme). |
 
-> ⚠️ **No `AUTH_SECRET` needed.** We're not encrypting cookies with a framework secret. The tokens are already cryptographically signed by Django.
+> ⚠️ **No `AUTH_SECRET` / `AUTH_TRUST_HOST` needed.** We are not encrypting cookies with
+> a framework secret — Django already signs the JWTs. Keep the env surface minimal.
 
-Document every new env var in `frontend/.env.example`.
+Document every new env var in `frontend/.env.example` (already mirrored there).
 
 ---
 
@@ -151,40 +194,34 @@ frontend/
 ├── middleware.js                            # Route protection (checks cookie existence)
 ├── app/
 │   ├── api/
-│   │   ├── auth/
-│   │   │   ├── login/
-│   │   │   │   └── route.js                # Login proxy → Django
-│   │   │   ├── refresh/
-│   │   │   │   └── route.js                # Refresh proxy → Django (with lock)
-│   │   │   ├── logout/
-│   │   │   │   └── route.js                # Logout proxy → Django blacklist
-│   │   │   └── me/
-│   │   │       └── route.js                # Current user proxy → Django
-│   │   └── proxy/
-│   │       └── [...path]/
-│   │           └── route.js                # Generic API proxy (catch-all)
-│   ├── login/
-│   │   └── page.jsx                        # Login form (calls /api/auth/login)
-│   └── (app)/                              # Authenticated route group
-│       ├── layout.jsx                      # Server component: validates session
-│       ├── chat/
-│       │   └── page.jsx
-│       ├── documents/
-│       │   └── page.jsx
-│       └── settings/
-│           └── page.jsx
+│   │   └── auth/
+│   │       ├── login/route.js               # Login proxy → Django
+│   │       ├── refresh/route.js             # Refresh proxy → Django (with lock + rotation)
+│   │       ├── logout/route.js              # Logout proxy → Django blacklist
+│   │       ├── register/route.js            # Registration proxy → Django
+│   │       └── me/route.js                  # Current user proxy → Django
+│   ├── api/proxy/[...path]/route.js          # Generic catch-all API proxy
+│   ├── login/page.jsx                        # Login form (calls /api/auth/login)
+│   └── (app)/                                # Authenticated route group
+│       ├── layout.jsx                        # Server component: validates session
+│       ├── chat/page.jsx
+│       └── settings/page.jsx
 ├── lib/
-│   ├── api.js                              # Server-side fetch helper (reads cookies)
-│   ├── api-client.js                       # Client-side fetch helper (calls proxy)
-│   ├── cookies.js                          # Cookie constants: names, options, helpers
-│   └── ws.js                               # (Phase 2) WebSocket with auth frame
+│   ├── django.js                            # Django base URL + endpoint paths (one source of truth)
+│   ├── cookies.js                           # Cookie names, options, set/clear helpers
+│   ├── jwt.js                               # Decode JWT `exp` (no verify) to detect expiry
+│   ├── refresh.js                           # Per-token in-flight lock (collapses concurrent refreshes)
+│   ├── server-auth.js                       # getValidAccessToken(): refresh-on-demand for server code
+│   ├── api.js                               # Server-side fetch helper (reads cookies, auto-refresh)
+│   ├── api-client.js                        # Client-side fetch helper (calls the proxy)
+│   └── ws.js                                # WebSocket connection helper
 └── __tests__/
     ├── auth/
-    │   ├── login.test.js                   # Login route handler tests
-    │   ├── refresh.test.js                 # Refresh route handler tests (with lock)
-    │   ├── logout.test.js                  # Logout route handler tests
-    │   └── proxy.test.js                   # Proxy route handler tests
-    └── middleware.test.js                  # Route protection tests
+    │   ├── login.test.js
+    │   ├── refresh.test.js                  # includes the concurrency-lock test
+    │   ├── logout.test.js
+    │   └── proxy.test.js
+    └── middleware.test.js
 ```
 
 ---
@@ -193,126 +230,507 @@ frontend/
 
 Work in this order. Do not skip ahead. Each step ends with a verifiable outcome.
 
-### Step 1 — Cookie Constants (`lib/cookies.js`)
+### Step 1 — Foundation modules (`lib/django.js`, `lib/cookies.js`, `lib/jwt.js`)
 
-Create a central module that defines cookie names, max-ages, and cookie options. This avoids magic strings scattered across the codebase.
+Three tiny, dependency-free modules everything else builds on. Define them once; never hardcode a path or cookie name anywhere else.
+
+#### `lib/django.js` — one source of truth for Django
 
 ```js
-// This is the ONLY place cookie names are defined.
-// Every other file imports from here.
+// lib/django.js
+// The ONLY place Django URLs are defined. Route Handlers import from here.
+
+// Server-side base (Docker/prod may differ from the browser base).
+export const DJANGO_API = process.env.INTERNAL_API_URL ?? "http://localhost:8000/api/v1";
+
+export const ENDPOINTS = {
+  login: "/accounts/auth/login/",
+  refresh: "/accounts/auth/refresh/",
+  logout: "/accounts/auth/logout/",
+  register: "/accounts/auth/register/",
+  me: "/accounts/users/me/",
+};
+
+/** Build an absolute Django URL from a relative API path. */
+export function djangoUrl(path) {
+  const clean = path.startsWith("/") ? path : `/${path}`;
+  return `${DJANGO_API}${clean}`;
+}
+```
+
+#### `lib/cookies.js` — cookie names, options, and set/clear helpers
+
+```js
+// lib/cookies.js
+// The ONLY place cookie names + options are defined.
 
 export const ACCESS_TOKEN_COOKIE = "access_token";
 export const REFRESH_TOKEN_COOKIE = "refresh_token";
 
-// Match your Django SIMPLE_JWT settings:
-// ACCESS_TOKEN_LIFETIME = timedelta(minutes=5)
-// REFRESH_TOKEN_LIFETIME = timedelta(days=1)
-export const ACCESS_MAX_AGE = 5 * 60;          // 5 minutes (seconds)
-export const REFRESH_MAX_AGE = 24 * 60 * 60;   // 1 day (seconds)
+// Mirror Django SIMPLE_JWT:
+//   ACCESS_TOKEN_LIFETIME  = timedelta(minutes=5)
+//   REFRESH_TOKEN_LIFETIME = timedelta(days=1)
+export const ACCESS_MAX_AGE = 5 * 60; // 300s
+export const REFRESH_MAX_AGE = 24 * 60 * 60; // 86400s
 
-export const cookieOptions = {
-  httpOnly: true,
-  secure: process.env.NODE_ENV === "production",
-  sameSite: "strict",
-  path: "/",
-};
+const isProd = process.env.NODE_ENV === "production";
+
+/** Base options shared by both cookies. */
+function baseOptions() {
+  return {
+    httpOnly: true, // JavaScript can never read these → XSS-safe
+    secure: isProd, // HTTPS-only in production
+    sameSite: "lax", // matches Django; "strict" can break OAuth-style redirects
+    path: "/",
+  };
+}
+
+/**
+ * Write both auth cookies onto a resolved cookie store.
+ * In Next.js 16 `cookies()` is async — pass the awaited store.
+ */
+export function setAuthCookies(cookieStore, { access, refresh }) {
+  if (access) {
+    cookieStore.set(ACCESS_TOKEN_COOKIE, access, {
+      ...baseOptions(),
+      maxAge: ACCESS_MAX_AGE,
+    });
+  }
+  if (refresh) {
+    cookieStore.set(REFRESH_TOKEN_COOKIE, refresh, {
+      ...baseOptions(),
+      maxAge: REFRESH_MAX_AGE,
+    });
+  }
+}
+
+/** Remove both auth cookies (logout / failed refresh). */
+export function clearAuthCookies(cookieStore) {
+  cookieStore.set(ACCESS_TOKEN_COOKIE, "", { ...baseOptions(), maxAge: 0 });
+  cookieStore.set(REFRESH_TOKEN_COOKIE, "", { ...baseOptions(), maxAge: 0 });
+}
 ```
 
-**Verify:** `npm run build` passes.
+#### `lib/jwt.js` — read the `exp` claim without verifying
+
+We never *verify* the JWT in Next.js (Django does that). We only decode `exp` so the proxy can refresh **proactively** instead of waiting for a `401`.
+
+```js
+// lib/jwt.js
+/** Decode a JWT payload without verifying the signature. Returns null on garbage. */
+export function decodeJwt(token) {
+  try {
+    const [, payload] = token.split(".");
+    const json = Buffer.from(payload, "base64url").toString("utf8");
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
+
+/** True if the token is missing, malformed, or expires within `skewSeconds`. */
+export function isExpired(token, skewSeconds = 10) {
+  const payload = decodeJwt(token);
+  if (!payload?.exp) return true;
+  const now = Math.floor(Date.now() / 1000);
+  return payload.exp <= now + skewSeconds;
+}
+```
+
+**Verify:** `npm run build` passes and importing these from a route handler resolves with the `@/lib/...` alias.
 
 ---
 
 ### Step 2 — Login Route Handler (`app/api/auth/login/route.js`)
 
-This is the BFF login endpoint. The browser sends email + password here. The handler:
-1. Validates input
-2. Calls Django's `/api/v1/auth/token/` with the credentials
-3. On success, sets both tokens as `httpOnly` cookies
-4. Returns user data (NO tokens in the response body)
-
-The client **never sees** the raw JWT strings.
-
-**Verify:** `curl -X POST http://localhost:3000/api/auth/login -H 'Content-Type: application/json' -d '{"email":"admin@aparsoft.com","password":"test123"}'` returns user data and sets cookies. The response body must NOT contain `access` or `refresh`.
-
----
-
-### Step 3 — Refresh Route Handler (`app/api/auth/refresh/route.js`)
-
-This is the most critical handler. It reads the `refresh_token` cookie, calls Django's refresh endpoint, and updates both cookies.
-
-**The Concurrency Lock:**
-
-Unlike Auth.js's `jwt()` callback which fires independently per Server Component, this route handler is a single HTTP endpoint. But if two client-side requests trigger refresh simultaneously, we still need a lock.
-
-Use a **module-scoped Promise lock**:
+The BFF login endpoint. The browser POSTs `{ email, password }` here. The handler:
+1. Validates input.
+2. Calls Django `/accounts/auth/login/`.
+3. Reads `data.tokens.access` / `data.tokens.refresh` from the **JSON body**.
+4. Sets both as `httpOnly` cookies.
+5. Returns **only** the user object + navigation hint. **No tokens in the body.**
 
 ```js
-let refreshPromise = null;
+// app/api/auth/login/route.js
+import { cookies } from "next/headers";
+import { djangoUrl, ENDPOINTS } from "@/lib/django";
+import { setAuthCookies } from "@/lib/cookies";
 
 export async function POST(request) {
-  // If a refresh is already in flight, await it instead of firing another
-  if (!refreshPromise) {
-    refreshPromise = doRefresh(request).finally(() => {
-      refreshPromise = null;
-    });
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return Response.json({ error: "Invalid JSON" }, { status: 400 });
   }
-  return refreshPromise;
+
+  const { email, password } = body ?? {};
+  if (!email || !password) {
+    return Response.json({ error: "Email and password are required" }, { status: 400 });
+  }
+
+  // Call Django. Never forward the browser's cookies here.
+  const djangoRes = await fetch(djangoUrl(ENDPOINTS.login), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+    cache: "no-store",
+  });
+
+  const payload = await djangoRes.json().catch(() => ({}));
+
+  if (!djangoRes.ok) {
+    // Surface Django's error but never its internals/stack.
+    const message = payload?.message || payload?.detail || "Invalid credentials";
+    return Response.json({ error: message }, { status: djangoRes.status });
+  }
+
+  // Response is wrapped: { data: { tokens: { access, refresh }, user, navigation } }
+  const tokens = payload?.data?.tokens ?? payload?.tokens;
+  const user = payload?.data?.user ?? payload?.user;
+  const navigation = payload?.data?.navigation ?? null;
+
+  if (!tokens?.access || !tokens?.refresh) {
+    return Response.json({ error: "Malformed token response from server" }, { status: 502 });
+  }
+
+  const cookieStore = await cookies();
+  setAuthCookies(cookieStore, tokens);
+
+  // Body carries NO tokens — only safe profile data.
+  return Response.json({ user, navigation }, { status: 200 });
 }
 ```
 
-This ensures that even if 5 requests hit `/api/auth/refresh` at the same millisecond, only **one** Django refresh call is made. The rest await the same result.
+> **Why no tokens in the body?** If the client can read the token, so can an XSS payload.
+> The whole point of the BFF is that JavaScript never sees the JWT.
 
-> ⚠️ **Important:** This lock is process-scoped (single Node.js instance). In a serverless deployment with multiple instances, you'd need a distributed lock (Redis). For this project (single server / Docker), the process lock is sufficient.
+**Verify:**
+```bash
+curl -i -X POST http://localhost:3000/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"admin@aparsoft.com","password":"test123"}'
+```
+The response sets `access_token` and `refresh_token` cookies (look for `Set-Cookie` with `HttpOnly`) and the JSON body contains `user` but **not** `access`/`refresh`.
 
-**Verify:** Use browser DevTools to manually expire the access token. A page with 3 parallel Server Components should all succeed without any `401` errors.
+#### Optional — Registration (`app/api/auth/register/route.js`)
+
+Same shape as login, but Django expects `password1`/`password2` and returns
+`{ user, tokens }` (flat, not under `data`). Auto-login the new user by setting cookies.
+
+```js
+// app/api/auth/register/route.js
+import { cookies } from "next/headers";
+import { djangoUrl, ENDPOINTS } from "@/lib/django";
+import { setAuthCookies } from "@/lib/cookies";
+
+export async function POST(request) {
+  const body = await request.json().catch(() => null);
+  if (!body?.email || !body?.password1 || body.password1 !== body.password2) {
+    return Response.json({ error: "Invalid registration data" }, { status: 400 });
+  }
+
+  const res = await fetch(djangoUrl(ENDPOINTS.register), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+  const payload = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    return Response.json({ error: payload?.message || "Registration failed", fields: payload }, { status: res.status });
+  }
+
+  const tokens = payload?.tokens ?? payload?.data?.tokens;
+  if (tokens?.access && tokens?.refresh) {
+    const cookieStore = await cookies();
+    setAuthCookies(cookieStore, tokens); // auto-login
+  }
+  return Response.json({ user: payload?.user ?? payload?.data?.user }, { status: 201 });
+}
+```
+
+---
+
+### Step 3 — Refresh logic + Route Handler
+
+The most important piece. Two requirements:
+
+1. **Rotation:** because `ROTATE_REFRESH_TOKENS=True`, Django returns a **new** refresh
+   token. You must overwrite **both** cookies, not just the access cookie.
+2. **Concurrency collapsing:** if several requests trigger a refresh at the same
+   millisecond, only **one** call should hit Django; the rest await the same result.
+
+Put the lock in a **shared module** so the refresh route, the proxy, and `lib/api.js`
+all use the *same* in-flight promise (a Node module is a singleton per process).
+
+#### `lib/refresh.js` — per-token in-flight collapsing
+
+```js
+// lib/refresh.js
+import { djangoUrl, ENDPOINTS } from "@/lib/django";
+
+// Key the lock by the refresh-token value so DIFFERENT users never share a promise.
+// (A single global promise would hand user B's tokens to user A.)
+const inFlight = new Map();
+
+async function callDjangoRefresh(refreshToken) {
+  const res = await fetch(djangoUrl(ENDPOINTS.refresh), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refresh: refreshToken }),
+    cache: "no-store",
+  });
+
+  if (!res.ok) {
+    const err = new Error("Token refresh failed");
+    err.status = res.status; // 401 → refresh token is dead
+    throw err;
+  }
+
+  const data = await res.json().catch(() => ({}));
+  // Tolerate both flat SimpleJWT shape and a wrapped { data: { tokens } } shape.
+  const tokens = data?.data?.tokens ?? data;
+  return {
+    access: tokens.access,
+    refresh: tokens.refresh ?? refreshToken, // keep old if backend didn't rotate
+  };
+}
+
+/**
+ * Refresh tokens, collapsing concurrent callers that share the same refresh token
+ * onto a single Django request. Returns { access, refresh }. Throws on failure.
+ */
+export function refreshTokens(refreshToken) {
+  if (inFlight.has(refreshToken)) return inFlight.get(refreshToken);
+  const promise = callDjangoRefresh(refreshToken).finally(() =>
+    inFlight.delete(refreshToken),
+  );
+  inFlight.set(refreshToken, promise);
+  return promise;
+}
+```
+
+#### `app/api/auth/refresh/route.js`
+
+```js
+// app/api/auth/refresh/route.js
+import { cookies } from "next/headers";
+import { REFRESH_TOKEN_COOKIE, setAuthCookies, clearAuthCookies } from "@/lib/cookies";
+import { refreshTokens } from "@/lib/refresh";
+
+export async function POST() {
+  const cookieStore = await cookies();
+  const refreshToken = cookieStore.get(REFRESH_TOKEN_COOKIE)?.value;
+
+  if (!refreshToken) {
+    return Response.json({ error: "No refresh token" }, { status: 401 });
+  }
+
+  try {
+    const tokens = await refreshTokens(refreshToken);
+    setAuthCookies(cookieStore, tokens); // rotation: writes BOTH cookies
+    return Response.json({ ok: true }, { status: 200 });
+  } catch (err) {
+    // Refresh token expired/blacklisted → force re-login.
+    clearAuthCookies(cookieStore);
+    return Response.json({ error: "Session expired" }, { status: 401 });
+  }
+}
+```
+
+> ⚠️ **Process-scoped lock.** This collapses concurrency within **one** Node process —
+> perfect for single-server / Docker. On multi-instance serverless you'd need a
+> distributed lock (Redis). With `BLACKLIST_AFTER_ROTATION=False` (this repo's setting),
+> a stray second call is harmless anyway because the old refresh token is not killed.
+
+**Verify:** Expire the access cookie in DevTools, then load a page with 3 parallel Server
+Components. All succeed; your Django logs show **one** refresh call, not three.
 
 ---
 
 ### Step 4 — Logout Route Handler (`app/api/auth/logout/route.js`)
 
-1. Read the `refresh_token` cookie.
-2. `POST` to Django's `/api/v1/auth/token/blacklist/` with the refresh token.
-3. Clear both cookies (`maxAge: -1` or `expires: new Date(0)`).
-4. Return success.
+Blacklist the refresh token on Django, then clear cookies **regardless** of whether the
+Django call succeeds (a network blip must not trap the user in a logged-in shell).
 
-**Verify:** After logout, cookies are gone and Django admin shows the token blacklisted.
+```js
+// app/api/auth/logout/route.js
+import { cookies } from "next/headers";
+import { djangoUrl, ENDPOINTS } from "@/lib/django";
+import { REFRESH_TOKEN_COOKIE, clearAuthCookies } from "@/lib/cookies";
+
+export async function POST() {
+  const cookieStore = await cookies();
+  const refresh = cookieStore.get(REFRESH_TOKEN_COOKIE)?.value;
+
+  if (refresh) {
+    try {
+      await fetch(djangoUrl(ENDPOINTS.logout), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh }),
+        cache: "no-store",
+      });
+    } catch {
+      // Network error — still clear local cookies below.
+    }
+  }
+
+  clearAuthCookies(cookieStore);
+  return Response.json({ ok: true }, { status: 200 });
+}
+```
+
+**Verify:** After hitting logout, both cookies are gone (DevTools → Application → Cookies)
+and the refresh token no longer works against Django's refresh endpoint.
 
 ---
 
-### Step 5 — Current User Route (`app/api/auth/me/route.js`)
+### Step 5 — Session helper + Current User Route
 
-1. Read the `access_token` cookie.
-2. If missing, try refreshing first (call the refresh logic).
-3. `GET` Django's `/api/v1/users/me/` with the access token.
-4. Return the user object.
+First, a small server-only helper that **guarantees a valid access token**, refreshing
+proactively when needed. The `me` route, the proxy, and `lib/api.js` all reuse it.
 
-Client components call this to check auth status without talking to Django directly.
+#### `lib/server-auth.js`
 
-**Verify:** `curl -b "access_token=..." http://localhost:3000/api/auth/me` returns user data.
+```js
+// lib/server-auth.js  (server-only — reads/writes cookies)
+import {
+  ACCESS_TOKEN_COOKIE,
+  REFRESH_TOKEN_COOKIE,
+  setAuthCookies,
+  clearAuthCookies,
+} from "@/lib/cookies";
+import { isExpired } from "@/lib/jwt";
+import { refreshTokens } from "@/lib/refresh";
+
+/**
+ * Return a usable access token, refreshing if the current one is expired.
+ * Rotated cookies are written as a side effect. Returns null if the session is dead.
+ * `cookieStore` must be the awaited result of cookies().
+ */
+export async function getValidAccessToken(cookieStore) {
+  const access = cookieStore.get(ACCESS_TOKEN_COOKIE)?.value;
+  if (access && !isExpired(access)) return access;
+
+  const refresh = cookieStore.get(REFRESH_TOKEN_COOKIE)?.value;
+  if (!refresh) return null;
+
+  try {
+    const tokens = await refreshTokens(refresh);
+    setAuthCookies(cookieStore, tokens);
+    return tokens.access;
+  } catch {
+    clearAuthCookies(cookieStore);
+    return null;
+  }
+}
+```
+
+#### `app/api/auth/me/route.js`
+
+```js
+// app/api/auth/me/route.js
+import { cookies } from "next/headers";
+import { djangoUrl, ENDPOINTS } from "@/lib/django";
+import { getValidAccessToken } from "@/lib/server-auth";
+
+export async function GET() {
+  const cookieStore = await cookies();
+  const access = await getValidAccessToken(cookieStore);
+  if (!access) return Response.json({ error: "Not authenticated" }, { status: 401 });
+
+  const res = await fetch(djangoUrl(ENDPOINTS.me), {
+    headers: { Authorization: `Bearer ${access}` },
+    cache: "no-store",
+  });
+
+  if (!res.ok) return Response.json({ error: "Failed to load user" }, { status: res.status });
+
+  const user = await res.json();
+  return Response.json({ user }, { status: 200 });
+}
+```
+
+Client components call `/api/auth/me` to check auth status without ever touching a token.
+
+**Verify:** With a logged-in browser, `fetch('/api/auth/me').then(r => r.json())` returns
+the user. With no cookies, it returns `401`.
 
 ---
 
 ### Step 6 — Generic API Proxy (`app/api/proxy/[...path]/route.js`)
 
-This is the **catch-all proxy** that forwards any API request to Django.
-
-1. Read the `access_token` cookie.
-2. If expired (decode JWT `exp` claim), refresh first.
-3. Inject `Authorization: Bearer <token>` header.
-4. Forward the request to `INTERNAL_API_URL + path`.
-5. Return Django's response to the client.
-
-This means client components never need to handle tokens at all:
+The **catch-all** that forwards any client request to Django with a valid token injected.
+Client components never touch tokens — they just `fetch('/api/proxy/...')`.
 
 ```js
-// Client component — no token handling needed!
+// app/api/proxy/[...path]/route.js
+import { cookies } from "next/headers";
+import { djangoUrl } from "@/lib/django";
+import { getValidAccessToken } from "@/lib/server-auth";
+
+const BODY_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+async function handler(request, ctx) {
+  const { path = [] } = await ctx.params; // Next.js 16: params is async
+  const cookieStore = await cookies();
+
+  const access = await getValidAccessToken(cookieStore);
+  if (!access) return Response.json({ error: "Not authenticated" }, { status: 401 });
+
+  // /api/proxy/chat/sessions/?x=1  →  <DJANGO>/chat/sessions/?x=1
+  const search = new URL(request.url).search;
+  const target = djangoUrl(`/${path.join("/")}/`) + search;
+
+  const init = {
+    method: request.method,
+    headers: { Authorization: `Bearer ${access}` },
+    cache: "no-store",
+  };
+
+  const contentType = request.headers.get("content-type");
+  if (BODY_METHODS.has(request.method)) {
+    if (contentType) init.headers["Content-Type"] = contentType;
+    init.body = await request.text(); // pass the raw body straight through
+  }
+
+  const djangoRes = await fetch(target, init);
+
+  // Stream Django's response back unchanged.
+  const body = await djangoRes.arrayBuffer();
+  return new Response(body, {
+    status: djangoRes.status,
+    headers: {
+      "Content-Type": djangoRes.headers.get("content-type") ?? "application/json",
+    },
+  });
+}
+
+export {
+  handler as GET,
+  handler as POST,
+  handler as PUT,
+  handler as PATCH,
+  handler as DELETE,
+};
+```
+
+Now a client component is trivial — no token handling at all:
+
+```js
+// Client component
 const res = await fetch("/api/proxy/chat/sessions/");
 const sessions = await res.json();
 ```
 
-The proxy handles auth transparently.
+> **Note on trailing slashes.** DRF routers expect a trailing slash (`APPEND_SLASH`).
+> The proxy adds one after `path.join("/")`. If a specific endpoint must omit it, special-case that route.
 
-**Verify:** From a logged-in browser, `fetch('/api/proxy/users/me/').then(r => r.json())` returns user data.
+**Verify:** From a logged-in browser,
+`fetch('/api/proxy/accounts/users/me/').then(r => r.json())` returns user data.
 
 ---
 
@@ -320,21 +738,25 @@ The proxy handles auth transparently.
 
 Create `middleware.js` at the project root. This is the **first line of defense** — a bouncer that checks if you have a ticket.
 
-1. Check if `access_token` cookie exists.
-2. If missing, redirect to `/login`.
-3. If present, let the request through.
+1. Check if a session cookie exists (`access_token` **or** `refresh_token`).
+2. If neither is present, redirect to `/login`.
+3. Otherwise, let the request through (the server layer validates the token).
 
 > ⚠️ **Middleware does NOT validate the token.** It only checks cookie existence. Token validation happens server-side in the route handlers and layouts. Think of middleware as a bouncer checking if you have a ticket, while your server components verify the ticket is valid.
 
 ```js
 // middleware.js
 import { NextResponse } from "next/server";
-import { ACCESS_TOKEN_COOKIE } from "@/lib/cookies";
+import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from "@/lib/cookies";
 
 export function middleware(request) {
-  const accessToken = request.cookies.get(ACCESS_TOKEN_COOKIE);
+  // A session "exists" if either cookie is present. The access cookie may have
+  // expired (max-age 5m) while the refresh cookie is still valid — don't kick the
+  // user out in that case; the proxy/layout will refresh server-side.
+  const hasSession =
+    request.cookies.get(ACCESS_TOKEN_COOKIE) || request.cookies.get(REFRESH_TOKEN_COOKIE);
 
-  if (!accessToken) {
+  if (!hasSession) {
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("callbackUrl", request.nextUrl.pathname);
     return NextResponse.redirect(loginUrl);
@@ -344,41 +766,179 @@ export function middleware(request) {
 }
 
 export const config = {
+  // Run on everything EXCEPT public pages, ALL /api routes (they handle their own
+  // auth and must return JSON, not an HTML redirect), and static assets.
   matcher: [
-    "/((?!login|api/auth|_next/static|_next/image|favicon.ico|public).*)",
+    "/((?!login|register|api|_next/static|_next/image|favicon.ico|public).*)",
   ],
 };
 ```
 
-**Note on Next.js 16 Proxy API:** Next.js 16 introduces `proxy.js` as a replacement for `middleware.js`. It provides the same functionality with direct access to the request object. For now, `middleware.js` works perfectly and has more community documentation. The migration to `proxy.js` is a future PR — the patterns are identical.
+> Why match on **either** cookie? The access cookie lives 5 minutes; the refresh cookie
+> lives a day. If middleware required the access cookie, users would bounce to `/login`
+> every 5 minutes even though their session is still refreshable.
+
+**Note on Next.js 16 `proxy.js`:** Next.js 16 ships `proxy.js` as the eventual successor to `middleware.js`. The patterns here port over 1:1; migrating is a mechanical follow-up (see Section 8). Stick with `middleware.js` for now — it has the most examples.
 
 **Verify:** Visit `http://localhost:3000/chat` without being logged in. You should be redirected to `/login?callbackUrl=/chat`.
 
 ---
 
-### Step 8 — Login Page (`app/login/page.jsx`)
+### Step 8 — Login Page + Client Helper
 
-A client component that:
-1. Renders an email/password form.
-2. On submit, `POST` to `/api/auth/login`.
-3. On success, redirect to the `callbackUrl` search param (or `/chat`).
-4. On failure, show error message.
-5. No `localStorage`. No tokens in JavaScript. The login response sets cookies server-side.
+#### `app/login/page.jsx`
 
-**Verify:** Log in. DevTools → Application → Cookies shows `access_token` and `refresh_token` as `httpOnly`. DevTools → Application → Local Storage is empty.
+A client component. It POSTs to the BFF, then lets the server set cookies. **Zero**
+token handling, **zero** `localStorage`.
+
+```jsx
+// app/login/page.jsx
+"use client";
+
+import { Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+
+function LoginForm() {
+  const router = useRouter();
+  const params = useSearchParams();
+  const callbackUrl = params.get("callbackUrl") || "/chat";
+
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  async function onSubmit(e) {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Login failed");
+        return;
+      }
+      // Prefer Django's navigation hint, else the callback URL.
+      const dest = data?.navigation?.dashboard_route || callbackUrl;
+      router.replace(dest);
+      router.refresh(); // re-run server components now that cookies exist
+    } catch {
+      setError("Network error. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <form onSubmit={onSubmit} className="mx-auto mt-24 flex w-80 flex-col gap-3">
+      <h1 className="text-xl font-semibold">Sign in</h1>
+      {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+      <input
+        type="email" required autoComplete="email"
+        placeholder="you@example.com"
+        value={email} onChange={(e) => setEmail(e.target.value)}
+        className="rounded border p-2"
+      />
+      <input
+        type="password" required autoComplete="current-password"
+        placeholder="Password"
+        value={password} onChange={(e) => setPassword(e.target.value)}
+        className="rounded border p-2"
+      />
+      <button type="submit" disabled={loading}
+        className="rounded bg-black p-2 text-white disabled:opacity-50">
+        {loading ? "Signing in…" : "Sign in"}
+      </button>
+    </form>
+  );
+}
+
+export default function LoginPage() {
+  // useSearchParams() must sit inside a Suspense boundary in the App Router.
+  return (
+    <Suspense fallback={null}>
+      <LoginForm />
+    </Suspense>
+  );
+}
+```
+
+#### `lib/api-client.js` — client-side fetch through the proxy
+
+```js
+// lib/api-client.js  (used by "use client" components)
+// Thin wrapper over the BFF proxy. Redirects to /login on 401.
+
+export async function apiClient(path, options = {}) {
+  const res = await fetch(`/api/proxy/${path.replace(/^\//, "")}`, {
+    ...options,
+    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+  });
+
+  if (res.status === 401 && typeof window !== "undefined") {
+    window.location.href = "/login";
+    return null;
+  }
+  return res;
+}
+```
+
+**Verify:** Log in. DevTools → Application → Cookies shows `access_token` and
+`refresh_token` flagged `HttpOnly`. DevTools → Local Storage is **empty**. You land on
+the dashboard/callback URL.
 
 ---
 
 ### Step 9 — Server-Side API Helper (`lib/api.js`)
 
-A helper for **Server Components** to call Django directly (not through the proxy — they're already on the server):
-
-1. Read `access_token` from `cookies()`.
-2. If expired, call `/api/auth/refresh` internally or refresh directly.
-3. Make the fetch to Django with `Authorization: Bearer <token>`.
-4. Return the response.
+For **Server Components** and **Server Actions**. They run on the server, so they call
+Django directly (no proxy hop) with auth handled by `getValidAccessToken`.
 
 ```js
+// lib/api.js  (server-only)
+import { cookies } from "next/headers";
+import { djangoUrl } from "@/lib/django";
+import { getValidAccessToken } from "@/lib/server-auth";
+
+/**
+ * Fetch a Django API path from the server with auth handled.
+ * Returns parsed JSON. Throws (with `.status`) on non-OK so callers can
+ * try/catch or let it bubble to the nearest error.js boundary.
+ */
+export async function apiFetch(path, options = {}) {
+  const cookieStore = await cookies();
+  const access = await getValidAccessToken(cookieStore);
+  if (!access) {
+    const err = new Error("UNAUTHENTICATED");
+    err.status = 401;
+    throw err;
+  }
+
+  const res = await fetch(djangoUrl(path), {
+    ...options,
+    headers: {
+      Authorization: `Bearer ${access}`,
+      "Content-Type": "application/json",
+      ...(options.headers || {}),
+    },
+    cache: "no-store",
+  });
+
+  if (!res.ok) {
+    const err = new Error(`API ${res.status} for ${path}`);
+    err.status = res.status;
+    throw err;
+  }
+  return res.json();
+}
+```
+
+```jsx
 // Usage in a Server Component:
 import { apiFetch } from "@/lib/api";
 
@@ -392,11 +952,68 @@ export default async function ChatPage() {
 
 ### Step 10 — Authenticated Route Group (`app/(app)/`)
 
-1. Create `app/(app)/layout.jsx` as a **server component**.
-2. Read the `access_token` cookie.
-3. Validate it by calling `/api/auth/me` (or directly calling Django's `/users/me/`).
-4. If invalid, `redirect('/login')`.
-5. Render the sidebar + header + children.
+A server-component `layout.jsx` that validates the session before any protected page renders.
+
+#### `app/(app)/layout.jsx`
+
+```jsx
+// app/(app)/layout.jsx  (Server Component)
+import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
+import { djangoUrl, ENDPOINTS } from "@/lib/django";
+import { getValidAccessToken } from "@/lib/server-auth";
+import LogoutButton from "./LogoutButton";
+
+export default async function AppLayout({ children }) {
+  const cookieStore = await cookies();
+  const access = await getValidAccessToken(cookieStore);
+  if (!access) redirect("/login");
+
+  // Validate by loading the user. If Django rejects the token, bounce to login.
+  const res = await fetch(djangoUrl(ENDPOINTS.me), {
+    headers: { Authorization: `Bearer ${access}` },
+    cache: "no-store",
+  });
+  if (!res.ok) redirect("/login");
+  const user = await res.json();
+
+  return (
+    <div className="flex min-h-screen">
+      <aside className="w-60 border-r p-4">{/* nav links */}</aside>
+      <div className="flex-1">
+        <header className="flex items-center justify-between border-b p-4">
+          <span>{user.full_name || user.email}</span>
+          <LogoutButton />
+        </header>
+        <main className="p-4">{children}</main>
+      </div>
+    </div>
+  );
+}
+```
+
+#### `app/(app)/LogoutButton.jsx`
+
+```jsx
+// app/(app)/LogoutButton.jsx
+"use client";
+
+import { useRouter } from "next/navigation";
+
+export default function LogoutButton() {
+  const router = useRouter();
+  async function logout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    router.replace("/login");
+    router.refresh();
+  }
+  return (
+    <button onClick={logout} className="text-sm underline">
+      Sign out
+    </button>
+  );
+}
+```
 
 This is the **second line of defense** (belt-and-braces after middleware):
 - **Middleware:** Fast cookie-existence check (runs at the edge, every request)
@@ -406,35 +1023,149 @@ This is the **second line of defense** (belt-and-braces after middleware):
 
 ---
 
-### Step 11 — WebSocket Authentication (Phase 2 Preparation)
+### Step 11 — WebSocket Authentication
 
-Do NOT pass tokens in WebSocket URL query parameters (`?token=<access>`). Query parameters are logged in plaintext by reverse proxies, load balancers, and web servers.
+**Current backend contract (verified):** the chat consumer authenticates by reading a JWT
+from the **query string** — `ws/chat/{session_id}/?token=<access>` (see
+`backend/apps/chatbot/consumers/chat_consumer.py`). Browsers cannot read the `httpOnly`
+cookie, so the client must obtain a fresh access token from the BFF first.
 
-Instead, use the **auth frame pattern**:
+#### `app/api/auth/ws-token/route.js` — hand the client a short-lived token
 
-1. Establish the WebSocket connection (no token in URL).
-2. Immediately send an auth frame as the first message: `{ type: "auth", token: "<access>" }`
-3. Server validates the token. If valid, the connection stays open. If not, close it.
+```js
+// app/api/auth/ws-token/route.js
+import { cookies } from "next/headers";
+import { getValidAccessToken } from "@/lib/server-auth";
 
-The Server Component or Route Handler reads the `access_token` cookie and provides it to the client component via a prop or an API endpoint. The client component never reads the cookie directly.
+export async function GET() {
+  const cookieStore = await cookies();
+  const token = await getValidAccessToken(cookieStore); // refreshes if needed
+  if (!token) return Response.json({ error: "Not authenticated" }, { status: 401 });
+  return Response.json({ token }, { status: 200 });
+}
+```
 
-Document this pattern in `lib/ws.js` as a TODO for Phase 2.
+#### `lib/ws.js` — open the authenticated socket
+
+```js
+// lib/ws.js  (client)
+export async function openChatSocket(sessionId, { onMessage, onError } = {}) {
+  const res = await fetch("/api/auth/ws-token");
+  if (!res.ok) throw new Error("Not authenticated");
+  const { token } = await res.json();
+
+  const host = process.env.NEXT_PUBLIC_WS_HOST; // e.g. localhost:8000
+  const scheme = window.location.protocol === "https:" ? "wss" : "ws";
+  const ws = new WebSocket(`${scheme}://${host}/ws/chat/${sessionId}/?token=${token}`);
+
+  if (onMessage) ws.addEventListener("message", (e) => onMessage(JSON.parse(e.data)));
+  if (onError) ws.addEventListener("error", onError);
+  return ws;
+}
+```
+
+> ⚠️ **Security trade-off you must understand.** Query-string tokens can be logged by
+> reverse proxies, load balancers, and access logs. We mitigate this by handing out only
+> a **short-lived (5 min) access token** fetched on demand — never the refresh token.
+>
+> **Recommended hardening (Phase 2, requires a backend change):** switch the consumer to
+> the **auth-frame pattern** — connect with no token in the URL, then send
+> `{ "type": "auth", "token": "<access>" }` as the first message; the server validates it
+> and keeps or drops the connection. Keep using `/api/auth/ws-token` to source the token.
 
 ---
 
 ### Step 12 — Tests
 
-Add the following Vitest tests:
+Add Vitest tests. Route handlers depend on `next/headers` `cookies()` and `fetch`, so
+mock both.
 
 | Test File | What It Tests |
 |-----------|--------------|
-| `__tests__/auth/login.test.js` | Login handler: success sets cookies, failure returns error, missing fields rejected |
-| `__tests__/auth/refresh.test.js` | Refresh handler: successful refresh, expired refresh token, **concurrency lock** (3 parallel calls → 1 Django request) |
-| `__tests__/auth/logout.test.js` | Logout handler: clears cookies, calls Django blacklist |
-| `__tests__/auth/proxy.test.js` | Proxy handler: injects auth header, handles 401, handles missing cookie |
-| `__tests__/middleware.test.js` | Middleware: redirects without cookie, passes with cookie, respects public routes |
+| `__tests__/auth/login.test.js` | Login: success sets cookies, failure returns error, missing fields rejected, **no tokens in body** |
+| `__tests__/auth/refresh.test.js` | Refresh: success rotates both cookies, dead refresh → 401 + cookies cleared, **concurrency lock** (parallel calls → 1 Django request) |
+| `__tests__/auth/logout.test.js` | Logout: clears cookies even when Django blacklist fails |
+| `__tests__/auth/proxy.test.js` | Proxy: injects `Authorization`, 401 when unauthenticated, forwards body |
+| `__tests__/middleware.test.js` | Middleware: redirect without cookies, pass with refresh cookie, public routes skipped |
 
-**Verify:** `npm run test` passes with coverage for all auth route handlers.
+#### The lock test (the one that proves the race is gone)
+
+```js
+// __tests__/auth/refresh.test.js
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { refreshTokens } from "@/lib/refresh";
+
+describe("refreshTokens — concurrency collapsing", () => {
+  beforeEach(() => vi.restoreAllMocks());
+
+  it("collapses concurrent callers sharing a refresh token into ONE Django call", async () => {
+    const fetchSpy = vi.spyOn(global, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ access: "new-a", refresh: "new-r" }), { status: 200 }),
+    );
+
+    // Fire 5 refreshes with the SAME token, simultaneously.
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () => refreshTokens("same-refresh-token")),
+    );
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1); // ← the whole point
+    for (const r of results) {
+      expect(r).toEqual({ access: "new-a", refresh: "new-r" });
+    }
+  });
+
+  it("does NOT collapse different users (different refresh tokens)", async () => {
+    const fetchSpy = vi.spyOn(global, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ access: "a", refresh: "r" }), { status: 200 }),
+    );
+
+    await Promise.all([refreshTokens("user-a-token"), refreshTokens("user-b-token")]);
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+});
+```
+
+#### Mocking `next/headers` for route-handler tests
+
+```js
+// __tests__/auth/login.test.js
+import { describe, it, expect, vi } from "vitest";
+
+const store = new Map();
+vi.mock("next/headers", () => ({
+  cookies: async () => ({
+    get: (k) => (store.has(k) ? { value: store.get(k) } : undefined),
+    set: (k, v) => store.set(k, v),
+  }),
+}));
+
+import { POST } from "@/app/api/auth/login/route";
+
+it("sets cookies and never leaks tokens in the body", async () => {
+  vi.spyOn(global, "fetch").mockResolvedValue(
+    new Response(
+      JSON.stringify({ data: { tokens: { access: "a", refresh: "r" }, user: { id: 1 } } }),
+      { status: 200 },
+    ),
+  );
+
+  const req = new Request("http://localhost/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email: "x@y.com", password: "pw" }),
+  });
+  const res = await POST(req);
+  const body = await res.json();
+
+  expect(res.status).toBe(200);
+  expect(body.user).toEqual({ id: 1 });
+  expect(body.access).toBeUndefined();
+  expect(body.refresh).toBeUndefined();
+  expect(store.get("access_token")).toBe("a");
+});
+```
+
+**Verify:** `npm run test` is green, including the lock test.
 
 ---
 
@@ -442,11 +1173,11 @@ Add the following Vitest tests:
 
 In the same PR, update:
 
-- `frontend/docs/frontend_guide.md` — auth section updated to BFF pattern
-- `frontend/docs/current_status.md` — mark auth as "BFF Proxy pattern"
-- `frontend/.env.example` — updated env vars (remove `AUTH_SECRET`, add `INTERNAL_API_URL`)
+- `frontend/docs/frontend_guide.md` — auth section points to this BFF playbook
+- `frontend/docs/current_status.md` — mark auth as "BFF Proxy pattern (implemented)"
+- `frontend/.env.example` — confirm `INTERNAL_API_URL` + `NEXT_PUBLIC_*` are documented; no `AUTH_SECRET`
 
-**Verify:** No mention of `next-auth`, `Auth.js`, `useSession`, `signIn`, or `authjs` remains anywhere under `frontend/`.
+**Verify:** `next-auth`, `Auth.js`, `useSession`, `signIn`, and `authjs` appear **nowhere** under `frontend/` (this repo never used them — keep it that way).
 
 ---
 
@@ -457,9 +1188,9 @@ Once the BFF proxy is in place, these become non-negotiable in code review:
 1. **No direct token storage.** The frontend never writes to `localStorage` or `sessionStorage` for auth.
 2. **No third-party auth library.** Django is the identity authority. Next.js is a proxy. Nothing sits between them.
 3. **All authenticated requests go through the proxy.** Client components call `/api/proxy/...`. Server components use `lib/api.js`.
-4. **Route protection is two-layer.** Middleware checks cookie existence (fast, edge). Layout validates the token (server-side, accurate).
-5. **Refresh has a lock.** The refresh route handler uses a process-scoped promise lock to prevent concurrent Django refresh calls.
-6. **Tokens are never in URLs.** WebSocket auth uses the auth frame pattern, not query parameters.
+4. **Route protection is two-layer.** Middleware checks cookie existence (fast, edge). Layout/proxy validate the token (server-side, accurate).
+5. **Refresh has a per-token lock.** `lib/refresh.js` collapses concurrent refreshes that share a refresh token onto one Django call — keyed by token so different users never share a promise.
+6. **Tokens are never persisted in JS.** The only short-lived exposure is the WS token (Step 11); the refresh token never leaves the server.
 7. **Django API stays unified.** The same Django endpoints serve both the Next.js web client and the React Native mobile client. No special cookie-auth backend needed.
 
 ---
@@ -469,14 +1200,16 @@ Once the BFF proxy is in place, these become non-negotiable in code review:
 | Pitfall | The Fix |
 |---------|---------|
 | **Middleware validates tokens** | Middleware only checks cookie existence. Validation happens in route handlers and layouts. |
-| **Refresh race condition** | The module-scoped promise lock in `/api/auth/refresh` prevents concurrent Django calls. |
-| **`BLACKLIST_AFTER_ROTATION`** | In Django settings, either: (a) set `BLACKLIST_AFTER_ROTATION = False` and use short-lived refresh tokens, or (b) keep it `True` and ensure the BFF lock is solid. Option (a) is simpler for this project. |
-| **Cookies not set in production** | Ensure `secure: true` and `sameSite: "strict"` in production. Check that the domain matches. |
+| **Refresh race condition** | The per-token in-flight map in `lib/refresh.js` collapses concurrent refreshes for the same token; this repo also sets `BLACKLIST_AFTER_ROTATION=False`, so a stray second call is harmless. |
+| **Forgetting refresh-token rotation** | `ROTATE_REFRESH_TOKENS=True` — the refresh response carries a **new** refresh token. Always overwrite **both** cookies, not just the access cookie. |
+| **Wrong endpoint paths** | Auth lives under `/api/v1/accounts/auth/...`, not `/api/v1/auth/token/...`. Login is `/accounts/auth/login/` with `{email,password}`. |
+| **Reading Django's Set-Cookie** | Django's own auth cookies are set on the server-to-server fetch and never reach the browser. Read tokens from the **JSON body** and set your own cookies. |
+| **Cookies not set in production** | Ensure `secure: true` in production and that the cookie domain matches the deployed origin. |
 | **Server fetch URL in Docker** | Use `INTERNAL_API_URL` for server-side calls (Docker network), `NEXT_PUBLIC_API_URL` for client-side (browser). |
 | **Large cookie payload** | Keep cookies to just the JWT strings. No user objects — fetch user data from `/api/auth/me`. |
-| **Stale access token in proxy** | The proxy should decode the JWT `exp` claim and refresh proactively before forwarding, not wait for a 401. |
-| **Forgetting to clear cookies on logout** | Always clear both `access_token` and `refresh_token` cookies, even if the Django blacklist call fails. |
-| **WebSocket token in URL** | Never. Use the auth frame pattern. URL query params are logged by every proxy in the chain. |
+| **Stale access token in proxy** | The proxy decodes the JWT `exp` claim (`lib/jwt.js`) and refreshes proactively before forwarding, not after a 401. |
+| **Forgetting to clear cookies on logout** | Always clear both cookies, even if the Django blacklist call fails. |
+| **`await cookies()`** | In Next.js 16 `cookies()` is **async**. Forgetting `await` yields a thenable with no `.get`. |
 
 ---
 
@@ -485,23 +1218,27 @@ Once the BFF proxy is in place, these become non-negotiable in code review:
 Tick this list before opening the PR.
 
 - [ ] `npm run build && npm run test` are green.
-- [ ] `next-auth` is removed from `package.json`. (`grep -r "next-auth" frontend/ --include="*.js" --include="*.json"` returns nothing.)
+- [ ] No third-party auth library present. (`grep -ri "next-auth\|authjs\|useSession" frontend/app frontend/lib` returns nothing.)
 - [ ] No `localStorage` / `sessionStorage` access for auth. (`grep -rn "localStorage" frontend/app frontend/lib` returns nothing auth-related.)
 - [ ] Login sets `httpOnly` cookies. No tokens in response body or JavaScript.
 - [ ] Middleware redirects unauthenticated users to `/login?callbackUrl=...`.
-- [ ] After 5 minutes idle, a page with multiple Server Components still loads — the refresh lock handled the rotation silently.
-- [ ] Logout clears both cookies and blacklists the token on Django.
-- [ ] WebSocket auth uses the auth frame pattern, not URL parameters (documented, not implemented until Phase 2).
-- [ ] All docs updated. No mention of Auth.js remains.
+- [ ] After 5 minutes idle, a page with multiple Server Components still loads — the per-token lock handled the rotation silently (Django logs show one refresh).
+- [ ] Logout clears both cookies and invalidates the refresh token on Django.
+- [ ] WebSocket connects via `/api/auth/ws-token` (short-lived token), never the refresh token.
+- [ ] All docs updated.
 
 ---
 
 ## 8. After This PR
 
-Two follow-ups are queued, not in scope here:
+Two hardening follow-ups, not required to ship:
 
-1. **`lib/ws.js`** in Phase 2 implements WebSocket auth using the auth frame pattern. The access token is read from cookies server-side and passed as the first frame over the established connection.
-2. **Migrate to `proxy.js`** — Next.js 16 introduces a native Proxy API that replaces `middleware.js`. The patterns are identical; the migration is mechanical. Do this when `proxy.js` has more community documentation and examples.
+1. **WebSocket auth-frame upgrade.** Change the Django consumer to accept the token as the
+   first message instead of a query param, then update `lib/ws.js` to send
+   `{ type: "auth", token }` on open. Removes the token from URLs/access logs.
+2. **Migrate `middleware.js` → `proxy.js`.** Next.js 16 ships a native Proxy API. The
+   patterns are identical; the migration is mechanical. Do it once `proxy.js` has more
+   community examples.
 
 ---
 
@@ -517,4 +1254,4 @@ Two follow-ups are queued, not in scope here:
 
 ---
 
-That is the whole plan. When you have shipped it, the frontend has a production-grade auth architecture that is simple, secure, and maintainable — with no abstraction bloat between Next.js and Django.
+That is the whole playbook. When you have shipped it, the frontend has a production-grade auth architecture that is simple, secure, and maintainable — with no abstraction bloat between Next.js and Django.
