@@ -366,6 +366,10 @@ EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 DEFAULT_FROM_EMAIL = config("DEFAULT_FROM_EMAIL", default="noreply@aparsoft.com")
 
 # OAuth settings
+# GOOGLE_OAUTH_CLIENT_ID is used by google-auth to verify ID-token audience.
+# The OAUTH dict below is used by the code-flow utility (accounts/utils/oauth.py).
+GOOGLE_OAUTH_CLIENT_ID = config("GOOGLE_OAUTH_CLIENT_ID", default="test-google-client-id.apps.googleusercontent.com")
+
 OAUTH = {
     "GOOGLE": {
         "CLIENT_ID": "your-google-client-id",
