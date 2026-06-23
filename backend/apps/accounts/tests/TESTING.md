@@ -14,12 +14,13 @@ Run from the repository backend folder:
 cd backend
 source venv/bin/activate
 
-# Run the full accounts test suite (99 tests)
+# Run the full accounts test suite (114 tests)
 python manage.py test accounts.tests --settings=config.settings.test -v 2
 
 # Run one module
 python manage.py test accounts.tests.test_auth_views --settings=config.settings.test -v 2
 python manage.py test accounts.tests.test_models --settings=config.settings.test -v 2
+python manage.py test accounts.tests.test_auth_social_views --settings=config.settings.test -v 2
 
 # Run one test class
 python manage.py test accounts.tests.test_auth_views.LoginViewTests --settings=config.settings.test -v 2
@@ -42,7 +43,8 @@ python manage.py test accounts.tests --settings=config.settings.test -v 2 --keep
 | `test_api_viewsets.py` | 27 | ViewSet CRUD, actions (/me, /verify-email, /change-password, /profile-image, /stats), permissions, swagger_fake_view guard |
 | `test_models.py` | 18 | CustomUser creation, email uniqueness, verify_email(), full_name, UserContact signal/OneToOne |
 | `test_serializers.py` | 12 | Serializer validation: create (password, email dup), update (partial, email dedup), read (nested contact) |
-| **Total** | **99** | |
+| `test_auth_social_views.py` | 15 | Google OAuth: ID-token verify, user creation, provider linking, cookies, Bearer auth, lifecycle, error cases |
+| **Total** | **114** | |
 
 ---
 
@@ -135,7 +137,39 @@ resp.data["results"]  # The list of items
 | `GET auth/csrf/` | 2 | Returns token, sets cookie |
 | `POST auth/password/change/` | 4 | Success, wrong old password, too short, requires auth |
 | Bearer auth | 3 | Grants access, no auth returns 401, invalid token |
+| `POST auth/social/google/` | 15 | New user created, cookies set, existing user not duplicated, provider recorded, login_count++, last_active, Bearer works, idempotent link, invalid token 401, audience mismatch 401, unverified email 403, missing/empty id_token 400, no user on failure, full lifecycle (login→access→refresh→logout) |
 | Integration | 2 | Full register→login→access→refresh→logout lifecycle, login→verify flow |
+
+### Google OAuth test details (`test_auth_social_views.py`)
+
+All Google API calls are **mocked** — tests never hit Google's servers.
+
+**Mocking pattern:** the view does `from google.oauth2 import id_token as google_id_token`
+inside `post()`, then calls `google_id_token.verify_oauth2_token(...)`. The test file
+imports the submodule at module level (`import google.oauth2.id_token`) so it exists in
+`sys.modules`, then patches the function directly:
+
+```python
+import google.oauth2.id_token  # noqa: F401 — loads submodule so patch() can find it
+
+PATCH_TARGET = "google.oauth2.id_token.verify_oauth2_token"
+
+@patch(PATCH_TARGET)
+def test_google_login_creates_new_user(self, mock_verify):
+    mock_verify.return_value = _make_claims()
+    resp = self.client.post(GOOGLE_LOGIN_URL, {"id_token": "fake-google-token"})
+```
+
+**Key gotchas for Google tests:**
+- You **must** `import google.oauth2.id_token` at the top of the test file — without it,
+  the submodule isn't loaded and `@patch("google.oauth2.id_token.verify_oauth2_token")`
+  raises `AttributeError`.
+- Use `mock_verify.return_value = claims` for success cases and
+  `mock_verify.side_effect = ValueError(...)` for failure cases.
+- The `_make_claims()` helper builds a fake Google claims dict with `sub`, `email`,
+  `email_verified`, `given_name`, `family_name`.
+- Google login response shape: `resp.data["data"]["tokens"]["access"]` (nested under `data`,
+  same as password login).
 
 ---
 
