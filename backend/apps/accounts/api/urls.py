@@ -21,6 +21,8 @@ from .views import (
     PasswordResetConfirmView,
     PasswordChangeView,
     OrganizationRegisterView,
+    # Social / OAuth views
+    GoogleLoginView,
     # CustomUser viewsets
     CustomUserViewSet,
     UserContactViewSet,
@@ -47,6 +49,11 @@ urlpatterns = [
     path("auth/verify/", TokenVerifyView.as_view(), name="token_verify"),
     path("auth/logout/", LogoutView.as_view(), name="auth_logout"),
     path("auth/register/", RegisterView.as_view(), name="auth_register"),
+    path(
+        "auth/social/google/",
+        GoogleLoginView.as_view(),
+        name="auth_social_google",
+    ),
     path(
         "auth/organization-register/",
         OrganizationRegisterView.as_view(),
