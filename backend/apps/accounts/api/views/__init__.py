@@ -18,6 +18,11 @@ from .auth_register_views import (
     CSRFTokenView,
 )
 
+# Auth social (OAuth) views
+from .auth_social_views import (
+    GoogleLoginView,
+)
+
 # Auth password reset views
 from .auth_password_reset_views import (
     PasswordResetView,
@@ -46,6 +51,8 @@ __all__ = [
     "RegisterView",
     "OrganizationRegisterView",
     "CSRFTokenView",
+    # Social / OAuth
+    "GoogleLoginView",
     # Password management
     "PasswordResetView",
     "PasswordResetConfirmView",
