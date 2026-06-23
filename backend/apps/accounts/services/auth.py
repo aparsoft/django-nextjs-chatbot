@@ -1,6 +1,4 @@
-# /home/ram/aparsoft/backend/apps/accounts/services/auth.py
-
-# backend/apps/accounts/api/serializers/auth.py
+# backend/apps/accounts/services/auth.py
 
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from django.conf import settings
