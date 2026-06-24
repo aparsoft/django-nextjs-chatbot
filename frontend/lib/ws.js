@@ -29,7 +29,7 @@ export async function getWsToken() {
  * @returns {string|null} The ws:// or wss:// URL, or null if sessionId/token is invalid.
  */
 export function buildWsUrl(sessionId, token) {
-    if (!sessionId || !token || sessionId === "new") return null;
+  if (!sessionId || !token || sessionId === "new" || sessionId === "undefined") return null;
   const host = process.env.NEXT_PUBLIC_WS_HOST;
     if (!host) return null;
   const scheme =
