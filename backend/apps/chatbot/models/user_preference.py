@@ -48,7 +48,7 @@ from core.models import TimestampedModel
 
 # Default values used by reset_to_defaults()
 PREFERENCE_DEFAULTS = {
-    "default_model": "gpt-5-mini",
+    "default_model": "gpt-4o-mini",
     "default_temperature": 0.7,
     "default_max_tokens": 2000,
     "enable_auto_summarization": True,
@@ -87,7 +87,7 @@ class UserPreference(TimestampedModel):
     # Default model settings
     default_model = models.CharField(
         max_length=100,
-        default="gpt-5-mini",
+        default="gpt-4o-mini",
         choices=[
             ("gpt-5-mini", "GPT-5 Mini (Recommended)"),
             ("gpt-5-nano", "GPT-5 Nano (Smaller/Faster)"),
@@ -365,7 +365,9 @@ class UserPreference(TimestampedModel):
             "temperature": PREFERENCE_DEFAULTS["default_temperature"],
             "max_tokens": PREFERENCE_DEFAULTS["default_max_tokens"],
             "enable_summarization": PREFERENCE_DEFAULTS["enable_auto_summarization"],
-            "summarization_threshold": PREFERENCE_DEFAULTS["summarization_trigger_tokens"],
+            "summarization_threshold": PREFERENCE_DEFAULTS[
+                "summarization_trigger_tokens"
+            ],
             "streaming": PREFERENCE_DEFAULTS["enable_streaming"],
             "language": PREFERENCE_DEFAULTS["response_language"],
         }
