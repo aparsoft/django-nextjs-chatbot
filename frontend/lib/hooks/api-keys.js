@@ -27,7 +27,12 @@ async function proxyFetch(path, options = {}) {
 export function useApiKeys(params = "") {
   return useQuery({
     queryKey: [...keys.apiKeys, params],
-    queryFn: () => proxyFetch(`api-keys/${params}`),
+    queryFn: async () => {
+      const data = await proxyFetch(`api-keys/${params}`);
+      // DRF LimitOffsetPagination returns {count, next, previous, results};
+      // non-paginated endpoints return a plain array. Normalize to array.
+      return Array.isArray(data) ? data : data?.results ?? [];
+    },
     staleTime: 30_000,
   });
 }
