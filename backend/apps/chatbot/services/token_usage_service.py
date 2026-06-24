@@ -198,19 +198,17 @@ class TokenUsageService:
                     "limit": prefs.daily_token_limit,
                 }
 
-        # Check cost limit
-        if prefs.daily_cost_limit:
-            # Estimate cost of additional tokens (use gpt-4o pricing as worst case)
-            estimated_cost = TokenUsageService.calculate_cost(
-                "gpt-4o", additional_tokens, 0
-            )["prompt_cost"]
-
-            if current_cost + float(estimated_cost) > prefs.daily_cost_limit:
+        # Check message limit
+        if prefs.daily_message_limit:
+            today_messages = TokenUsage.objects.filter(
+                user=user, created_at__gte=today_start
+            ).count()
+            if today_messages >= prefs.daily_message_limit:
                 return {
                     "allowed": False,
-                    "reason": f"Daily cost limit exceeded (${prefs.daily_cost_limit})",
-                    "current_cost": current_cost,
-                    "limit": float(prefs.daily_cost_limit),
+                    "reason": f"Daily message limit exceeded ({prefs.daily_message_limit})",
+                    "current_messages": today_messages,
+                    "limit": prefs.daily_message_limit,
                 }
 
         return {
