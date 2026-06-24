@@ -23,7 +23,9 @@ export default function ChatSidebar({ activeSessionId }) {
   async function handleNewChat() {
     try {
       const session = await createSession.mutateAsync({ title: "New Chat" });
-      router.push(`/chat/${session.id}`);
+      if (session?.id) {
+        router.push(`/chat/${session.id}`);
+      }
     } catch {
       // error shown via createSession.error
     }
