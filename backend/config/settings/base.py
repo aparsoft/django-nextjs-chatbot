@@ -182,9 +182,17 @@ CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
-            "hosts": [_redis_url.replace("/0", "/0")],
+            "hosts": [
+                {
+                    "address": _redis_url.replace("/0", "/0"),
+                    "socket_timeout": 60,
+                    "socket_connect_timeout": 10,
+                    "health_check_interval": 30,
+                    "retry_on_timeout": True,
+                }
+            ],
             "capacity": 1500,
-            "expiry": 10,
+            "expiry": 300,  # 5 minutes — must cover LLM streaming responses
         },
     },
 }
