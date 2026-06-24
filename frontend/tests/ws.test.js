@@ -1,5 +1,5 @@
 // tests/ws.test.js
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
 
 // Mock react-use-websocket before importing hooks that use it.
 vi.mock("react-use-websocket", () => ({
@@ -55,6 +55,11 @@ describe("getWsToken", () => {
 });
 
 describe("buildWsUrl", () => {
+    // Set the WS host env var for tests (buildWsUrl returns null without it).
+    const originalHost = process.env.NEXT_PUBLIC_WS_HOST;
+    beforeAll(() => { process.env.NEXT_PUBLIC_WS_HOST = "localhost:8000"; });
+    afterAll(() => { process.env.NEXT_PUBLIC_WS_HOST = originalHost; });
+
   it("builds a ws:// URL with token in query string", () => {
     const url = buildWsUrl("session-123", "my-token");
     expect(url).toContain("ws://");
@@ -68,12 +73,22 @@ describe("buildWsUrl", () => {
     expect(url).toMatch(/^ws:\/\//); // jsdom is http
   });
 
-  it("uses NEXT_PUBLIC_WS_HOST env var", () => {
-    // In test env, NEXT_PUBLIC_WS_HOST may not be set — the function
-    // should still produce a valid URL with whatever host is available.
+    it("uses NEXT_PUBLIC_WS_HOST env var", () => {
     const url = buildWsUrl("s1", "t1");
     expect(url).toMatch(/^ws:\/\/[^/]+\/ws\/chat\/s1\/\?token=t1$/);
   });
+
+    it("returns null for undefined sessionId", () => {
+        expect(buildWsUrl(undefined, "tok")).toBeNull();
+    });
+
+    it("returns null for 'new' sessionId", () => {
+        expect(buildWsUrl("new", "tok")).toBeNull();
+    });
+
+    it("returns null when token is missing", () => {
+        expect(buildWsUrl("session-123", null)).toBeNull();
+    });
 });
 
 describe("parseWsMessage", () => {
