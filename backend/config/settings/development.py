@@ -265,7 +265,7 @@ CHANNEL_LAYERS = {
         "CONFIG": {
             "hosts": [REDIS_URL],
             "capacity": 1500,
-            "expiry": 20,
+            "expiry": 300,  # 5 minutes — must be long enough for LLM streaming responses
         },
     },
 }
