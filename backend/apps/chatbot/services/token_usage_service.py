@@ -172,7 +172,12 @@ class TokenUsageService:
             if not limit_check['allowed']:
                 return Response({'error': limit_check['reason']}, status=429)
         """
-        prefs = user.ai_preferences
+        try:
+            prefs = user.ai_preferences
+        except Exception:
+            from ..models.user_preference import UserPreference
+
+            prefs, _created = UserPreference.objects.get_or_create(user=user)
 
         # Get today's usage
         today_start = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
