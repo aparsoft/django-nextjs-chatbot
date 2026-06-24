@@ -348,7 +348,7 @@ export async function openChatSocket(sessionId, { onChunk, onMessage, onError, o
 - [ ] `lib/ws.js`
 - [ ] `lib/hooks/chat-sessions.js`
 - [ ] `lib/hooks/chat-agent.js`
-- [ ] `lib/hooks/documents.js`
+- [x] `lib/hooks/documents.js`
 - [ ] `lib/hooks/preferences.js`
 - [ ] `lib/hooks/token-usage.js`
 - [ ] `lib/hooks/api-keys.js`
@@ -363,8 +363,8 @@ export async function openChatSocket(sessionId, { onChunk, onMessage, onError, o
 - [ ] `app/(app)/chat/components/ChatMessage.jsx`
 - [ ] `app/(app)/chat/components/ChatInput.jsx`
 - [ ] `app/(app)/chat/components/ChatStream.jsx`
-- [ ] `app/(app)/documents/page.jsx`
-- [ ] `app/(app)/documents/[id]/page.jsx`
+- [x] `app/(app)/documents/page.jsx`
+- [x] `app/(app)/documents/[id]/page.jsx`
 - [ ] `app/(app)/settings/page.jsx`
 - [ ] `app/(app)/settings/profile/page.jsx`
 - [ ] `app/(app)/settings/preferences/page.jsx`
@@ -385,7 +385,7 @@ export async function openChatSocket(sessionId, { onChunk, onMessage, onError, o
 ### Tests
 - [ ] `tests/chat-sessions.test.jsx`
 - [ ] `tests/chat-agent.test.jsx`
-- [ ] `tests/documents.test.jsx`
+- [x] `tests/documents.test.jsx`
 - [ ] `tests/preferences.test.jsx`
 - [ ] `tests/ws.test.js`
 
