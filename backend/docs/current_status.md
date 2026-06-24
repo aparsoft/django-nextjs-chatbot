@@ -1,6 +1,6 @@
 # Current Status — Django + Next.js AI Chatbot
 
-> Snapshot of what's built, what's wired, and what's still a stub. Updated May 2026.
+> Snapshot of what's built, what's wired, and what's still a stub. Updated June 2026.
 
 ---
 
@@ -22,11 +22,14 @@
 |-------|--------|---------|
 | Models | ✅ | `CustomUser` (user/admin roles), `UserContact` |
 | Auth (JWT) | ✅ | Login, logout, register, password reset, email verification, CSRF |
+| Google OAuth | ✅ | `GoogleLoginView` — ID-token verification via `google-auth`, mints our JWTs |
+| Cookie helper | ✅ | `accounts/services/cookies.py` — `set_auth_cookies` / `clear_auth_cookies` (single source of truth) |
+| Cookie max-age bug | ✅ Fixed | Login/refresh/logout views now use the centralized helper (was hardcoded 7d/1h) |
 | Serializers | ✅ | Operation-based split: Read / List / Create / Update |
 | ViewSets | ✅ | Action-based with `@action url_path` for custom routes |
 | Permissions | ✅ | Admin sees all, regular user sees self |
 | API Docs | ✅ | `@extend_schema` on every view, 0 errors/0 warnings |
-| Tests | ✅ | 99 tests (models + serializers + API viewsets + auth views) |
+| Tests | ✅ | 114 tests (models + serializers + API viewsets + auth views + Google OAuth) |
 | Signal | ✅ | Auto-creates `UserContact` on user creation |
 | Spectacular extension | ✅ | `CustomJWTCookieAuthenticationScheme` registered |
 
@@ -83,15 +86,20 @@ All mounted at `/api/v1/chatbot/`:
 
 ---
 
-## Frontend — ❌ Stub
+## Frontend — ✅ Auth Wired, Chat Stub
 
 | Component | Status |
 |-----------|--------|
-| Next.js 15 + React 19 | ✅ Installed |
+| Next.js 16 + React 19 | ✅ Installed |
 | Tailwind CSS v4 | ✅ Installed |
-| Pages | ❌ Only root `page.js` — no chat, auth, or dashboard pages |
-| Components | ❌ No `components/`, `lib/`, or `hooks/` directories |
-| API layer | ❌ No axios/fetch integration |
+| TanStack Query | ✅ `@tanstack/react-query` — auth hooks (`useLogin`, `useLogout`, `useCurrentUser`, `useRegister`, `useGoogleLogin`) |
+| BFF proxy pattern | ✅ Route handlers: login, refresh, logout, register, me, ws-token, social/google, catch-all proxy |
+| `proxy.js` | ✅ Next.js 16 `proxy.js` (replaces deprecated `middleware.js`) — cookie-existence route protection |
+| Auth pages | ✅ `app/auth/login/`, `app/auth/register/`, `app/auth/LogoutButton` |
+| Lib modules | ✅ `django.js`, `cookies.js`, `jwt.js`, `refresh.js`, `server-auth.js`, `api.js`, `api-client.js`, `auth-hooks.js` |
+| Tests | ✅ 41 tests (jwt, refresh lock, cookies, django, auth-hooks) |
+| Chat UI | ❌ Not started |
+| Dashboard | ❌ Not started |
 
 ---
 
@@ -108,10 +116,10 @@ All mounted at `/api/v1/chatbot/`:
 
 | App | Tests | Status |
 |-----|------:|--------|
-| `accounts` | 99 | ✅ All passing (models + serializers + API viewsets + auth views) |
+| `accounts` | 114 | ✅ All passing (models + serializers + API viewsets + auth views + Google OAuth) |
 | `chatbot` | 115 | ✅ Model (66) + Agent service (49) tests passing; ❌ No API/serializer tests |
 | `core` | 0 | ❌ No tests |
-| **Total** | **214** | |
+| **Total** | **229** | |
 
 ---
 
@@ -144,5 +152,5 @@ All mounted at `/api/v1/chatbot/`:
 | `docs/backend_guide.md` | Project structure, patterns, and how-to guide |
 | `docs/current_status.md` | This file — what's done, what's next |
 | `docs/vision.md` | Project direction and goals |
-| `docs/AUTHENTICATION.md` | Detailed auth flow documentation |
+| `docs/AUTHENTICATION.md` | Gold-standard backend auth guide (JWT + Google OAuth + cookie helper + threat model + runbook) |
 | `docs/lessons/` | 10-lesson Django tutorial series |
