@@ -31,7 +31,7 @@ export function useChatHistory(sessionId) {
   return useQuery({
     queryKey: keys.chatHistory(sessionId),
     queryFn: () => proxyFetch(`chat-agent/history/${sessionId}/`),
-    enabled: !!sessionId,
+      enabled: !!sessionId && sessionId !== "new",
   });
 }
 
@@ -65,8 +65,9 @@ export function useChatSocket(sessionId) {
   const pendingMessageRef = useRef(null);
 
   // Fetch a short-lived WS token when the session changes.
+    // Skip if sessionId is missing or "new" (not a real session yet).
   useEffect(() => {
-    if (!sessionId) return;
+      if (!sessionId || sessionId === "new") return;
     let cancelled = false;
     getWsToken()
       .then((t) => { if (!cancelled) setToken(t); })
