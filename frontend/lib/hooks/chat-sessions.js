@@ -37,7 +37,7 @@ export function useSession(id) {
   return useQuery({
     queryKey: keys.session(id),
     queryFn: () => proxyFetch(`chat-sessions/${id}/`),
-    enabled: !!id,
+      enabled: !!id && id !== "new",
   });
 }
 
