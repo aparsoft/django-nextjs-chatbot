@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, use } from "react";
 import { useChatHistory, useChatSocket } from "@/lib/hooks/chat-agent";
 import { useSession } from "@/lib/hooks/chat-sessions";
 import ChatSidebar from "@/app/components/chat/ChatSidebar";
@@ -10,7 +10,8 @@ import ChatInput from "@/app/components/chat/ChatInput";
 import TokenCounter from "@/app/components/chat/TokenCounter";
 
 export default function ChatSessionPage({ params }) {
-  const sessionId = params.sessionId;
+    // Next.js 16: params is a Promise — unwrap with React.use()
+    const { sessionId } = use(params);
 
   const { data: session } = useSession(sessionId);
   const { data: history, isLoading: historyLoading } = useChatHistory(sessionId);
