@@ -349,10 +349,10 @@ export async function openChatSocket(sessionId, { onChunk, onMessage, onError, o
 - [ ] `lib/hooks/chat-sessions.js`
 - [ ] `lib/hooks/chat-agent.js`
 - [x] `lib/hooks/documents.js`
-- [ ] `lib/hooks/preferences.js`
-- [ ] `lib/hooks/token-usage.js`
-- [ ] `lib/hooks/api-keys.js`
-- [ ] `lib/hooks/tools.js`
+- [x] `lib/hooks/preferences.js`
+- [x] `lib/hooks/token-usage.js`
+- [x] `lib/hooks/api-keys.js`
+- [x] `lib/hooks/tools.js`
 - [ ] `lib/hooks/admin.js`
 
 ### App routes
@@ -365,12 +365,12 @@ export async function openChatSocket(sessionId, { onChunk, onMessage, onError, o
 - [ ] `app/(app)/chat/components/ChatStream.jsx`
 - [x] `app/(app)/documents/page.jsx`
 - [x] `app/(app)/documents/[id]/page.jsx`
-- [ ] `app/(app)/settings/page.jsx`
-- [ ] `app/(app)/settings/profile/page.jsx`
-- [ ] `app/(app)/settings/preferences/page.jsx`
-- [ ] `app/(app)/settings/api-keys/page.jsx`
-- [ ] `app/(app)/settings/tools/page.jsx`
-- [ ] `app/(app)/settings/usage/page.jsx`
+- [x] `app/(app)/settings/page.jsx`
+- [x] `app/(app)/settings/profile/page.jsx`
+- [x] `app/(app)/settings/preferences/page.jsx`
+- [x] `app/(app)/settings/api-keys/page.jsx`
+- [x] `app/(app)/settings/tools/page.jsx`
+- [x] `app/(app)/settings/usage/page.jsx`
 - [ ] `app/(app)/admin/page.jsx`
 - [ ] `app/(app)/admin/users/page.jsx`
 - [ ] `app/(app)/admin/prompts/page.jsx`
@@ -386,7 +386,10 @@ export async function openChatSocket(sessionId, { onChunk, onMessage, onError, o
 - [ ] `tests/chat-sessions.test.jsx`
 - [ ] `tests/chat-agent.test.jsx`
 - [x] `tests/documents.test.jsx`
-- [ ] `tests/preferences.test.jsx`
+- [x] `tests/preferences.test.jsx`
+- [x] `tests/api-keys.test.jsx`
+- [x] `tests/tools.test.jsx`
+- [x] `tests/token-usage.test.jsx`
 - [ ] `tests/ws.test.js`
 
 ---
