@@ -78,6 +78,9 @@ class ChatSessionService:
 
         user_prefs, _created = UserPreference.objects.get_or_create(user=user)
 
+        # NOTE: max_tokens and custom_system_prompt are UserPreference-level
+        # settings, NOT ChatSession model fields.  They are read from prefs
+        # at agent-invocation time, not stored on the session row.
         session = ChatSession.objects.create(
             user=user,
             title=title,
@@ -87,14 +90,11 @@ class ChatSessionService:
                 if temperature is not None
                 else user_prefs.default_temperature
             ),
-            max_tokens=max_tokens or user_prefs.default_max_tokens,
             enable_summarization=(
                 enable_summarization
                 if enable_summarization is not None
                 else user_prefs.enable_auto_summarization
             ),
-            custom_system_prompt=custom_system_prompt
-            or user_prefs.custom_system_prompt,
             metadata=metadata or {},
         )
 
