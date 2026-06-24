@@ -73,8 +73,10 @@ class ChatSessionService:
                 temperature=0.7
             )
         """
-        # Get user preferences for defaults
-        user_prefs = user.ai_preferences
+        # Get user preferences for defaults — auto-create if missing.
+        from ..models.user_preference import UserPreference
+
+        user_prefs, _created = UserPreference.objects.get_or_create(user=user)
 
         session = ChatSession.objects.create(
             user=user,
