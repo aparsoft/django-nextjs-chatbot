@@ -26,10 +26,12 @@ export async function getWsToken() {
  * Build the WebSocket URL for a chat session.
  * @param {string} sessionId - Chat session UUID.
  * @param {string} token - JWT access token.
- * @returns {string} The ws:// or wss:// URL.
+ * @returns {string|null} The ws:// or wss:// URL, or null if sessionId/token is invalid.
  */
 export function buildWsUrl(sessionId, token) {
+    if (!sessionId || !token || sessionId === "new") return null;
   const host = process.env.NEXT_PUBLIC_WS_HOST;
+    if (!host) return null;
   const scheme =
     typeof window !== "undefined" && window.location.protocol === "https:"
       ? "wss"
