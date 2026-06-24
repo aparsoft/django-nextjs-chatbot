@@ -117,20 +117,55 @@ class ChatSessionCreateSerializer(serializers.ModelSerializer):
     Only accepts fields the user should set at creation time.
     The `user` field is injected by the view from request.user.
     Session analytics fields default to zero and are read-only.
+    Includes `id` and timestamps so the client can navigate to the
+    newly created session immediately after POST.
     """
+
+    id = serializers.UUIDField(read_only=True)
+    thread_id = serializers.CharField(read_only=True)
+    title_preview = serializers.CharField(read_only=True)
+    is_new = serializers.BooleanField(read_only=True)
+    user_email = serializers.SerializerMethodField()
 
     class Meta:
         model = ChatSession
         fields = [
+            "id",
+            "user",
+            "user_email",
             "title",
+            "title_preview",
             "description",
             "model_name",
             "temperature",
             "enable_summarization",
             "summarization_threshold",
+            "is_active",
+            "is_archived",
+            "is_pinned",
+            "is_new",
+            "thread_id",
             "tags",
             "metadata",
+            "message_count",
+            "total_tokens_used",
+            "last_message_at",
+            "created_at",
+            "updated_at",
         ]
+        read_only_fields = [
+            "id",
+            "user",
+            "message_count",
+            "total_tokens_used",
+            "last_message_at",
+            "created_at",
+            "updated_at",
+        ]
+
+    @extend_schema_field(serializers.EmailField(allow_null=True))
+    def get_user_email(self, obj) -> str | None:
+        return obj.user.email if obj.user else None
 
     def validate_temperature(self, value):
         """Ensure temperature is within the valid range (0.0–2.0)."""
