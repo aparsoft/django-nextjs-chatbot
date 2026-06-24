@@ -36,6 +36,7 @@ class ChatSessionModelTests(ChatbotTestMixin, TestCase):
     def test_session_uuid_pk(self):
         """Session uses UUID primary key."""
         from uuid import UUID
+
         self.assertIsInstance(self.session.pk, UUID)
 
     def test_str_returns_title_and_email(self):
@@ -143,12 +144,14 @@ class ChatSessionModelTests(ChatbotTestMixin, TestCase):
         archived.archive()
         active = ChatSession.get_active_for_user(self.user) if __debug__ else None
         from chatbot.models import ChatSession
+
         active = ChatSession.get_active_for_user(self.user)
         self.assertEqual(active.count(), 2)  # self.session + new active
 
     def test_get_session_stats(self):
         """get_session_stats returns aggregate stats."""
         from chatbot.models import ChatSession
+
         self.create_session(self.user)
         stats = ChatSession.get_session_stats(self.user)
         self.assertEqual(stats["total_sessions"], 2)
@@ -169,7 +172,7 @@ class UserPreferenceModelTests(ChatbotTestMixin, TestCase):
 
     def test_create_preference_defaults(self):
         """Preference has correct defaults."""
-        self.assertEqual(self.prefs.default_model, "gpt-5-mini")
+        self.assertEqual(self.prefs.default_model, "gpt-4o-mini")
         self.assertEqual(self.prefs.default_temperature, 0.7)
         self.assertTrue(self.prefs.enable_streaming)
         self.assertEqual(self.prefs.theme, "auto")
@@ -210,15 +213,17 @@ class UserPreferenceModelTests(ChatbotTestMixin, TestCase):
         self.prefs.save()
         self.prefs.reset_to_defaults()
         self.prefs.refresh_from_db()
-        self.assertEqual(self.prefs.default_model, "gpt-5-mini")
+        self.assertEqual(self.prefs.default_model, "gpt-4o-mini")
         self.assertEqual(self.prefs.default_temperature, 0.7)
 
     def test_update_from_dict(self):
         """update_from_dict updates specified fields."""
-        self.prefs.update_from_dict({
-            "default_model": "gpt-4o",
-            "theme": "dark",
-        })
+        self.prefs.update_from_dict(
+            {
+                "default_model": "gpt-4o",
+                "theme": "dark",
+            }
+        )
         self.prefs.refresh_from_db()
         self.assertEqual(self.prefs.default_model, "gpt-4o")
         self.assertEqual(self.prefs.theme, "dark")
@@ -231,6 +236,7 @@ class UserPreferenceModelTests(ChatbotTestMixin, TestCase):
     def test_get_or_create_for_user(self):
         """get_or_create_for_user is idempotent."""
         from chatbot.models import UserPreference
+
         prefs1 = UserPreference.get_or_create_for_user(self.user)
         prefs2 = UserPreference.get_or_create_for_user(self.user)
         self.assertEqual(prefs1.id, prefs2.id)
@@ -238,6 +244,7 @@ class UserPreferenceModelTests(ChatbotTestMixin, TestCase):
     def test_one_to_one_constraint(self):
         """Cannot create a second preference for the same user."""
         from chatbot.models import UserPreference
+
         with self.assertRaises(IntegrityError):
             UserPreference.objects.create(user=self.user)
 
@@ -257,7 +264,8 @@ class TokenUsageModelTests(ChatbotTestMixin, TestCase):
     def test_create_usage_auto_calculates_totals(self):
         """save() auto-calculates total_tokens and total_cost."""
         usage = self.create_token_usage(
-            self.user, self.session,
+            self.user,
+            self.session,
             prompt_tokens=100,
             completion_tokens=50,
             prompt_cost=Decimal("0.000015"),
@@ -276,6 +284,7 @@ class TokenUsageModelTests(ChatbotTestMixin, TestCase):
     def test_calculate_cost(self):
         """calculate_cost returns correct cost dict."""
         from chatbot.models import TokenUsage
+
         costs = TokenUsage.calculate_cost("gpt-4o-mini", 1000000, 1000000)
         self.assertEqual(costs["prompt_cost"], Decimal("0.15"))
         self.assertEqual(costs["completion_cost"], Decimal("0.60"))
@@ -283,7 +292,10 @@ class TokenUsageModelTests(ChatbotTestMixin, TestCase):
     def test_get_user_usage_today(self):
         """get_user_usage_today returns today's aggregate."""
         from chatbot.models import TokenUsage
-        self.create_token_usage(self.user, self.session, prompt_tokens=200, completion_tokens=100)
+
+        self.create_token_usage(
+            self.user, self.session, prompt_tokens=200, completion_tokens=100
+        )
         usage = TokenUsage.get_user_usage_today(self.user)
         self.assertEqual(usage["message_count"], 1)
         self.assertGreater(usage["total_tokens"], 0)
@@ -396,6 +408,7 @@ class UserDocumentModelTests(ChatbotTestMixin, TestCase):
     def test_get_user_storage_usage(self):
         """get_user_storage_usage returns aggregate storage."""
         from chatbot.models import UserDocument
+
         self.create_document(self.user, self.session, file_size=1024)
         self.create_document(self.user, self.session, file_size=2048)
         usage = UserDocument.get_user_storage_usage(self.user)
@@ -477,6 +490,7 @@ class SystemPromptTemplateModelTests(ChatbotTestMixin, TestCase):
     def test_get_default(self):
         """get_default returns the default template."""
         from chatbot.models import SystemPromptTemplate
+
         t = self.create_system_prompt(is_default=True)
         default = SystemPromptTemplate.get_default()
         self.assertEqual(default.id, t.id)
@@ -527,7 +541,8 @@ class UserToolModelTests(ChatbotTestMixin, TestCase):
     def test_get_effective_config(self):
         """get_effective_config merges registry defaults + user overrides."""
         tool = self.create_user_tool(
-            self.user, tool_name="web_search",
+            self.user,
+            tool_name="web_search",
             configuration={"max_results": 10},
         )
         config = tool.get_effective_config()
@@ -542,6 +557,7 @@ class UserToolModelTests(ChatbotTestMixin, TestCase):
     def test_enable_tool_from_registry(self):
         """enable_tool() creates from TOOL_REGISTRY."""
         from chatbot.models import UserTool
+
         tool = UserTool.enable_tool(self.user, "calculator")
         self.assertEqual(tool.tool_name, "calculator")
         self.assertTrue(tool.is_enabled)
@@ -549,6 +565,7 @@ class UserToolModelTests(ChatbotTestMixin, TestCase):
     def test_enable_unknown_tool_raises(self):
         """enable_tool() rejects unknown tool names."""
         from chatbot.models import UserTool
+
         with self.assertRaises(ValueError):
             UserTool.enable_tool(self.user, "nonexistent_tool")
 
@@ -611,6 +628,7 @@ class UserAPIKeyModelTests(ChatbotTestMixin, TestCase):
     def test_get_default_key(self):
         """get_default_key returns the default key for a provider."""
         from chatbot.models import UserAPIKey
+
         key = self.create_api_key(self.user, is_default=True)
         result = UserAPIKey.get_default_key(self.user, "openai")
         self.assertEqual(result.id, key.id)
