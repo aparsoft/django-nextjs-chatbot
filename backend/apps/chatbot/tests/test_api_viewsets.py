@@ -191,7 +191,7 @@ class UserPreferenceViewSetTests(ChatbotTestMixin, TestCase):
         resp = self.client.post(f"{BASE}preferences/reset-defaults/")
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.prefs.refresh_from_db()
-        self.assertEqual(self.prefs.default_model, "gpt-5-mini")
+        self.assertEqual(self.prefs.default_model, "gpt-4o-mini")
 
     def test_update_preferences(self):
         """PATCH updates preference fields."""
@@ -269,12 +269,15 @@ class MessageFeedbackViewSetTests(ChatbotTestMixin, TestCase):
     def test_create_feedback(self):
         """POST creates feedback for a session."""
         self.client.force_authenticate(self.user)
-        resp = self.client.post(f"{BASE}message-feedback/", {
-            "rating": "thumbs_up",
-            "checkpoint_id": "cp-123",
-            "message_index": 0,
-            "model_used": "gpt-4o-mini",
-        })
+        resp = self.client.post(
+            f"{BASE}message-feedback/",
+            {
+                "rating": "thumbs_up",
+                "checkpoint_id": "cp-123",
+                "message_index": 0,
+                "model_used": "gpt-4o-mini",
+            },
+        )
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
 
     def test_list_own_feedback(self):
@@ -403,20 +406,28 @@ class SystemPromptViewSetTests(ChatbotTestMixin, TestCase):
     def test_create_prompt_admin_only(self):
         """Admin can create a new prompt."""
         self.client.force_authenticate(self.admin)
-        resp = self.client.post(f"{BASE}system-prompts/", {
-            "name": "New Prompt",
-            "slug": "new-prompt",
-            "content": "You are a test assistant.",
-            "category": "general",
-        })
+        resp = self.client.post(
+            f"{BASE}system-prompts/",
+            {
+                "name": "New Prompt",
+                "slug": "new-prompt",
+                "content": "You are a test assistant.",
+                "category": "general",
+            },
+        )
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
 
     def test_create_prompt_regular_user_forbidden(self):
         """Regular user cannot create prompts."""
         self.client.force_authenticate(self.user)
-        resp = self.client.post(f"{BASE}system-prompts/", {
-            "name": "Bad", "slug": "bad", "content": "bad",
-        })
+        resp = self.client.post(
+            f"{BASE}system-prompts/",
+            {
+                "name": "Bad",
+                "slug": "bad",
+                "content": "bad",
+            },
+        )
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_rate_action(self):
@@ -557,11 +568,14 @@ class UserAPIKeyViewSetTests(ChatbotTestMixin, TestCase):
     def test_create_api_key(self):
         """POST stores a new API key (encrypted)."""
         self.client.force_authenticate(self.user)
-        resp = self.client.post(f"{BASE}api-keys/", {
-            "provider": "anthropic",
-            "key_name": "My Claude Key",
-            "api_key": "sk-ant-api03-long-fake-key-for-testing-12345",
-        })
+        resp = self.client.post(
+            f"{BASE}api-keys/",
+            {
+                "provider": "anthropic",
+                "key_name": "My Claude Key",
+                "api_key": "sk-ant-api03-long-fake-key-for-testing-12345",
+            },
+        )
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
         # Response should NOT contain the raw key
         self.assertNotIn("api_key", resp.data)
@@ -624,41 +638,49 @@ class ChatbotSchemaGenerationTests(ChatbotTestMixin, TestCase):
 
     def test_chat_session_swagger(self):
         from chatbot.api.views import ChatSessionViewSet
+
         qs = self._make_viewset(ChatSessionViewSet).get_queryset()
         self.assertEqual(qs.count(), 0)
 
     def test_preference_swagger(self):
         from chatbot.api.views import UserPreferenceViewSet
+
         qs = self._make_viewset(UserPreferenceViewSet).get_queryset()
         self.assertEqual(qs.count(), 0)
 
     def test_token_usage_swagger(self):
         from chatbot.api.views import TokenUsageViewSet
+
         qs = self._make_viewset(TokenUsageViewSet).get_queryset()
         self.assertEqual(qs.count(), 0)
 
     def test_feedback_swagger(self):
         from chatbot.api.views import MessageFeedbackViewSet
+
         qs = self._make_viewset(MessageFeedbackViewSet).get_queryset()
         self.assertEqual(qs.count(), 0)
 
     def test_document_swagger(self):
         from chatbot.api.views import UserDocumentViewSet
+
         qs = self._make_viewset(UserDocumentViewSet).get_queryset()
         self.assertEqual(qs.count(), 0)
 
     def test_system_prompt_swagger(self):
         from chatbot.api.views import SystemPromptViewSet
+
         qs = self._make_viewset(SystemPromptViewSet).get_queryset()
         self.assertEqual(qs.count(), 0)
 
     def test_tool_swagger(self):
         from chatbot.api.views import UserToolViewSet
+
         qs = self._make_viewset(UserToolViewSet).get_queryset()
         self.assertEqual(qs.count(), 0)
 
     def test_api_key_swagger(self):
         from chatbot.api.views import UserAPIKeyViewSet
+
         qs = self._make_viewset(UserAPIKeyViewSet).get_queryset()
         self.assertEqual(qs.count(), 0)
 
