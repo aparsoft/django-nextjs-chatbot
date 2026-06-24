@@ -1,69 +1,60 @@
 // lib/ws.js  (client-only)
-// WebSocket connection helper for real-time chat streaming.
+// WebSocket helpers using react-use-websocket for robust connection management.
+//
+// Backend protocol (server → client):
+//   { "type": "token",   "content": "..." }  — streaming chunk
+//   { "type": "message", "content": "..." }  — final complete message
+//   { "type": "error",   "content": "..." }  — error message
+//   { "type": "done" }                        — stream finished
+//
+// Backend protocol (client → server):
+//   { "message": "user text" }                — send a chat message
 
 /**
- * Open an authenticated WebSocket to the chat consumer.
- *
- * Backend protocol (server → client):
- *   { "type": "token",   "content": "..." }  — streaming chunk
- *   { "type": "message", "content": "..." }  — final complete message
- *   { "type": "error",   "content": "..." }  — error message
- *   { "type": "done" }                        — stream finished
- *
- * Backend protocol (client → server):
- *   { "message": "user text" }                — send a chat message
- *
- * @param {string} sessionId - Chat session UUID
- * @param {object} handlers - { onChunk, onMessage, onError, onClose }
- * @returns {Promise<WebSocket>} The open WebSocket connection
+ * Fetch a short-lived access token for WebSocket auth.
+ * The BFF reads the httpOnly cookie and returns the token.
+ * @returns {Promise<string>} The access token.
  */
-export async function openChatSocket(sessionId, { onChunk, onMessage, onError, onClose } = {}) {
+export async function getWsToken() {
   const res = await fetch("/api/auth/ws-token");
   if (!res.ok) throw new Error("Not authenticated");
   const { token } = await res.json();
-
-  const host = process.env.NEXT_PUBLIC_WS_HOST;
-  const scheme = window.location.protocol === "https:" ? "wss" : "ws";
-  const ws = new WebSocket(`${scheme}://${host}/ws/chat/${sessionId}/?token=${token}`);
-
-  ws.addEventListener("message", (e) => {
-    let data;
-    try {
-      data = JSON.parse(e.data);
-    } catch {
-      return;
-    }
-    switch (data.type) {
-      case "token":
-        onChunk?.(data.content);
-        break;
-      case "message":
-        onMessage?.(data.content);
-        break;
-      case "done":
-        onClose?.();
-        break;
-      case "error":
-        onError?.(data.content);
-        break;
-    }
-  });
-
-  ws.addEventListener("error", () => onError?.("Connection error"));
-  ws.addEventListener("close", () => onClose?.());
-
-  return ws;
+  return token;
 }
 
 /**
- * Send a chat message over an existing WebSocket connection.
- * Waits for the socket to be open before sending.
+ * Build the WebSocket URL for a chat session.
+ * @param {string} sessionId - Chat session UUID.
+ * @param {string} token - JWT access token.
+ * @returns {string} The ws:// or wss:// URL.
  */
-export function sendChatMessage(ws, message) {
-  const payload = JSON.stringify({ message });
-  if (ws.readyState === WebSocket.OPEN) {
-    ws.send(payload);
-  } else {
-    ws.addEventListener("open", () => ws.send(payload), { once: true });
+export function buildWsUrl(sessionId, token) {
+  const host = process.env.NEXT_PUBLIC_WS_HOST;
+  const scheme =
+    typeof window !== "undefined" && window.location.protocol === "https:"
+      ? "wss"
+      : "ws";
+  return `${scheme}://${host}/ws/chat/${sessionId}/?token=${token}`;
+}
+
+/**
+ * Parse an incoming WebSocket message.
+ * @param {MessageEvent} event - The raw WebSocket message event.
+ * @returns {{ type: string, content?: string } | null}
+ */
+export function parseWsMessage(event) {
+  try {
+    return JSON.parse(event.data);
+  } catch {
+    return null;
   }
+}
+
+/**
+ * Build the payload for sending a chat message.
+ * @param {string} message - The user's message text.
+ * @returns {string} JSON string.
+ */
+export function buildChatPayload(message) {
+  return JSON.stringify({ message });
 }
