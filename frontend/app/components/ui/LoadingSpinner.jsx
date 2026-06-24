@@ -14,11 +14,13 @@ export const LoadingSpinner = ({ className, size = 18 }) => {
     // const combinedClassName = `${defaultSpinnerClasses} ${className || ''}`.trim();
 
     return (
-        <Loader2
-            className={combinedClassName}
-            size={size}
-            aria-label="Loading" // Good for accessibility
-        />
+        <span suppressHydrationWarning>
+            <Loader2
+                className={combinedClassName}
+                size={size}
+                aria-label="Loading" // Good for accessibility
+            />
+        </span>
     );
 };
 
