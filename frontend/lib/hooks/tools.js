@@ -27,7 +27,12 @@ async function proxyFetch(path, options = {}) {
 export function useTools(params = "") {
   return useQuery({
     queryKey: [...keys.tools, params],
-    queryFn: () => proxyFetch(`tools/${params}`),
+    queryFn: async () => {
+      const data = await proxyFetch(`tools/${params}`);
+      // DRF LimitOffsetPagination returns {count, next, previous, results};
+      // non-paginated endpoints return a plain array. Normalize to array.
+      return Array.isArray(data) ? data : data?.results ?? [];
+    },
     staleTime: 30_000,
   });
 }
@@ -45,7 +50,10 @@ export function useToolRegistry() {
 export function useEnabledTools() {
   return useQuery({
     queryKey: keys.enabledTools,
-    queryFn: () => proxyFetch("tools/enabled/"),
+    queryFn: async () => {
+      const data = await proxyFetch("tools/enabled/");
+      return Array.isArray(data) ? data : data?.results ?? [];
+    },
     staleTime: 30_000,
   });
 }
