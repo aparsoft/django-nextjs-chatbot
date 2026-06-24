@@ -27,7 +27,12 @@ async function proxyFetch(path, options = {}) {
 export function useSessions(params = "") {
   return useQuery({
     queryKey: [...keys.sessions, params],
-    queryFn: () => proxyFetch(`chat-sessions/${params}`),
+    queryFn: async () => {
+      const data = await proxyFetch(`chat-sessions/${params}`);
+      // DRF LimitOffsetPagination returns {count, next, previous, results};
+      // non-paginated endpoints return a plain array. Normalize to array.
+      return Array.isArray(data) ? data : data?.results ?? [];
+    },
     staleTime: 30_000,
   });
 }
@@ -37,7 +42,7 @@ export function useSession(id) {
   return useQuery({
     queryKey: keys.session(id),
     queryFn: () => proxyFetch(`chat-sessions/${id}/`),
-      enabled: !!id && id !== "new",
+    enabled: !!id && id !== "new" && id !== "undefined",
   });
 }
 
