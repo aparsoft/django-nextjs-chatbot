@@ -18,9 +18,10 @@ function LoginForm() {
   async function onSubmit(e) {
     e.preventDefault();
     try {
-      const data = await login.mutateAsync({ email, password });
-      const dest = data?.navigation?.dashboard_route || callbackUrl;
-      router.replace(dest);
+      await login.mutateAsync({ email, password });
+      // Always redirect to callbackUrl (defaults to /chat).
+      // Django's navigation.dashboard_route is ignored — our route is /chat, not /dashboard.
+      router.replace(callbackUrl);
       router.refresh();
     } catch {
       // error is in login.error
