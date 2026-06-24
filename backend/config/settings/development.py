@@ -259,15 +259,25 @@ CELERY_RESULT_BACKEND_TRANSPORT_OPTIONS = {
 }
 
 # Channel Layers Configuration (for Django Channels)
+# Use a dict for hosts so we can pass explicit socket timeouts.
+# redis-py 6.x defaults to a short socket_timeout that causes
+# TimeoutError during long-running consumers (e.g. LLM streaming).
+# See: https://github.com/django/channels_redis/issues/422
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
-            "hosts": [REDIS_URL],
+            "hosts": [{
+                "address": REDIS_URL,
+                "socket_timeout": 60,          # 60s read timeout (was ~5s default)
+                "socket_connect_timeout": 10,  # 10s connect timeout
+                "health_check_interval": 30,   # send PING every 30s to keep alive
+                "retry_on_timeout": True,
+            }],
             "capacity": 1500,
             "expiry": 300,  # 5 minutes — must be long enough for LLM streaming responses
         },
-    },
+    }
 }
 
 # Cache Configuration
@@ -368,7 +378,9 @@ DEFAULT_FROM_EMAIL = config("DEFAULT_FROM_EMAIL", default="noreply@aparsoft.com"
 # OAuth settings
 # GOOGLE_OAUTH_CLIENT_ID is used by google-auth to verify ID-token audience.
 # The OAUTH dict below is used by the code-flow utility (accounts/utils/oauth.py).
-GOOGLE_OAUTH_CLIENT_ID = config("GOOGLE_OAUTH_CLIENT_ID", default="test-google-client-id.apps.googleusercontent.com")
+GOOGLE_OAUTH_CLIENT_ID = config(
+    "GOOGLE_OAUTH_CLIENT_ID", default="test-google-client-id.apps.googleusercontent.com"
+)
 
 OAUTH = {
     "GOOGLE": {
