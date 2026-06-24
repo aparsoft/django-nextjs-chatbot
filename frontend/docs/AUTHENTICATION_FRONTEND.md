@@ -72,7 +72,7 @@ Auth.js abstracts cookie management away. Modifying cookies dynamically from mid
 │                    Next.js BFF Layer                              │
 │                                                                   │
 │   ┌─────────────────────────────────────────────────────────┐     │
-│   │  middleware.js (or proxy.js in Next.js 16)              │     │
+│   │  proxy.js (Next.js 16 — replaces middleware.js)        │     │
 │   │  • Checks if access_token OR refresh_token cookie exists│     │
 │   │  • Redirects to /login if neither present               │     │
 │   │  • Does NOT validate token (that's the route handler)   │     │
@@ -219,7 +219,7 @@ Document every new env var in `frontend/.env.example` (already mirrored there).
 
 ```
 frontend/
-├── middleware.js                            # Route protection (checks cookie existence)
+├── proxy.js                                # Route protection (Next.js 16 — replaces middleware.js)
 ├── app/
 │   ├── api/
 │   │   └── auth/
@@ -251,7 +251,7 @@ frontend/
     │   ├── refresh.test.js                  # includes the concurrency-lock test
     │   ├── logout.test.js
     │   └── proxy.test.js
-    └── middleware.test.js
+    └── proxy.test.js
 ```
 
 ---
@@ -816,22 +816,25 @@ const sessions = await res.json();
 
 ---
 
-### Step 7 — Middleware (`middleware.js`)
+### Step 7 — Proxy (`proxy.js`)
 
-Create `middleware.js` at the project root. This is the **first line of defense** — a bouncer that checks if you have a ticket.
+Create `proxy.js` at the project root. In Next.js 16, `middleware.js` is **deprecated** and
+renamed to `proxy.js` — the exported function must be named `proxy` (not `middleware`).
+The logic, matcher config, and `NextResponse` API are identical. This is the **first line
+of defense** — a bouncer that checks if you have a ticket.
 
 1. Check if a session cookie exists (`access_token` **or** `refresh_token`).
 2. If neither is present, redirect to `/login`.
 3. Otherwise, let the request through (the server layer validates the token).
 
-> ⚠️ **Middleware does NOT validate the token.** It only checks cookie existence. Token validation happens server-side in the route handlers and layouts. Think of middleware as a bouncer checking if you have a ticket, while your server components verify the ticket is valid.
+> ⚠️ **Proxy does NOT validate the token.** It only checks cookie existence. Token validation happens server-side in the route handlers and layouts. Think of proxy as a bouncer checking if you have a ticket, while your server components verify the ticket is valid.
 
 ```js
-// middleware.js
+// proxy.js  (Next.js 16 — replaces the deprecated middleware.js)
 import { NextResponse } from "next/server";
 import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from "@/lib/cookies";
 
-export function middleware(request) {
+export function proxy(request) {
   // A session "exists" if either cookie is present. The access cookie may have
   // expired (max-age 5m) while the refresh cookie is still valid — don't kick the
   // user out in that case; the proxy/layout will refresh server-side.
@@ -857,10 +860,14 @@ export const config = {
 ```
 
 > Why match on **either** cookie? The access cookie lives 5 minutes; the refresh cookie
-> lives a day. If middleware required the access cookie, users would bounce to `/login`
+> lives a day. If proxy required the access cookie, users would bounce to `/login`
 > every 5 minutes even though their session is still refreshable.
 
-**Note on Next.js 16 `proxy.js`:** Next.js 16 ships `proxy.js` as the eventual successor to `middleware.js`. The patterns here port over 1:1; migrating is a mechanical follow-up (see Section 8). Stick with `middleware.js` for now — it has the most examples.
+> ✅ **Next.js 16 `proxy.js` is the standard.** `middleware.js` is deprecated in Next.js 16
+> and will be removed in a future version. This codebase uses `proxy.js` with the
+> exported `proxy` function. The migration from `middleware.js` is mechanical — rename
+> the file and the function. An official codemod is available:
+> `npx @next/codemod@canary middleware-to-proxy .`
 
 **Verify:** Visit `http://localhost:3000/chat` without being logged in. You should be redirected to `/login?callbackUrl=/chat`.
 
@@ -1097,11 +1104,11 @@ export default function LogoutButton() {
 }
 ```
 
-This is the **second line of defense** (belt-and-braces after middleware):
-- **Middleware:** Fast cookie-existence check (runs at the edge, every request)
+This is the **second line of defense** (belt-and-braces after proxy):
+- **Proxy:** Fast cookie-existence check (runs before every request)
 - **Layout:** Full token validation (runs server-side, page loads only)
 
-**Verify:** Logged-in users see the app. Logged-out users get redirected by middleware BEFORE the page renders (no flash of protected content).
+**Verify:** Logged-in users see the app. Logged-out users get redirected by proxy BEFORE the page renders (no flash of protected content).
 
 ---
 
@@ -1168,7 +1175,7 @@ mock both.
 | `__tests__/auth/refresh.test.js` | Refresh: success rotates both cookies, dead refresh → 401 + cookies cleared, **concurrency lock** (parallel calls → 1 Django request) |
 | `__tests__/auth/logout.test.js` | Logout: clears cookies even when Django blacklist fails |
 | `__tests__/auth/proxy.test.js` | Proxy: injects `Authorization`, 401 when unauthenticated, forwards body |
-| `__tests__/middleware.test.js` | Middleware: redirect without cookies, pass with refresh cookie, public routes skipped |
+| `__tests__/proxy.test.js` | Proxy: redirect without cookies, pass with refresh cookie, public routes skipped |
 
 #### The lock test (the one that proves the race is gone)
 
@@ -1270,7 +1277,7 @@ Once the BFF proxy is in place, these become non-negotiable in code review:
 1. **No direct token storage.** The frontend never writes to `localStorage` or `sessionStorage` for auth.
 2. **No third-party auth library.** Django is the identity authority. Next.js is a proxy. Nothing sits between them.
 3. **All authenticated requests go through the proxy.** Client components call `/api/proxy/...`. Server components use `lib/api.js`.
-4. **Route protection is two-layer.** Middleware checks cookie existence (fast, edge). Layout/proxy validate the token (server-side, accurate).
+4. **Route protection is two-layer.** Proxy checks cookie existence (fast, before routes). Layout/proxy validate the token (server-side, accurate).
 5. **Refresh has a per-token lock.** `lib/refresh.js` collapses concurrent refreshes that share a refresh token onto one Django call — keyed by token so different users never share a promise.
 6. **Tokens are never persisted in JS.** The only short-lived exposure is the WS token (Step 11); the refresh token never leaves the server.
 7. **Django API stays unified.** The same Django endpoints serve both the Next.js web client and the React Native mobile client. No special cookie-auth backend needed.
@@ -1281,7 +1288,7 @@ Once the BFF proxy is in place, these become non-negotiable in code review:
 
 | Pitfall | The Fix |
 |---------|---------|
-| **Middleware validates tokens** | Middleware only checks cookie existence. Validation happens in route handlers and layouts. |
+| **Proxy validates tokens** | Proxy only checks cookie existence. Validation happens in route handlers and layouts. |
 | **Refresh race condition** | The per-token in-flight map in `lib/refresh.js` collapses concurrent refreshes for the same token; this repo also sets `BLACKLIST_AFTER_ROTATION=False`, so a stray second call is harmless. |
 | **Forgetting refresh-token rotation** | `ROTATE_REFRESH_TOKENS=True` — the refresh response carries a **new** refresh token. Always overwrite **both** cookies, not just the access cookie. |
 | **Wrong endpoint paths** | Auth lives under `/api/v1/accounts/auth/...`, not `/api/v1/auth/token/...`. Login is `/accounts/auth/login/` with `{email,password}`. |
@@ -1303,7 +1310,7 @@ Tick this list before opening the PR.
 - [ ] No third-party auth library present. (`grep -ri "next-auth\|authjs\|useSession" frontend/app frontend/lib` returns nothing.)
 - [ ] No `localStorage` / `sessionStorage` access for auth. (`grep -rn "localStorage" frontend/app frontend/lib` returns nothing auth-related.)
 - [ ] Login sets `httpOnly` cookies. No tokens in response body or JavaScript.
-- [ ] Middleware redirects unauthenticated users to `/login?callbackUrl=...`.
+- [ ] Proxy redirects unauthenticated users to `/auth/login?callbackUrl=...`.
 - [ ] After 5 minutes idle, a page with multiple Server Components still loads — the per-token lock handled the rotation silently (Django logs show one refresh).
 - [ ] Logout clears both cookies and invalidates the refresh token on Django.
 - [ ] WebSocket connects via `/api/auth/ws-token` (short-lived token), never the refresh token.
@@ -1313,14 +1320,14 @@ Tick this list before opening the PR.
 
 ## 8. After This PR
 
-Two hardening follow-ups, not required to ship:
+One hardening follow-up, not required to ship:
 
 1. **WebSocket auth-frame upgrade.** Change the Django consumer to accept the token as the
    first message instead of a query param, then update `lib/ws.js` to send
    `{ type: "auth", token }` on open. Removes the token from URLs/access logs.
-2. **Migrate `middleware.js` → `proxy.js`.** Next.js 16 ships a native Proxy API. The
-   patterns are identical; the migration is mechanical. Do it once `proxy.js` has more
-   community examples.
+
+> ✅ **`proxy.js` migration is done.** This codebase uses `proxy.js` (not the deprecated
+> `middleware.js`) as of Next.js 16.
 
 ---
 
