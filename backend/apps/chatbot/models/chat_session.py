@@ -88,7 +88,7 @@ class ChatSession(TimestampedModel):
     # Session configuration
     model_name = models.CharField(
         max_length=100,
-        default="gpt-5-mini",
+        default="gpt-4o-mini",
         help_text=_("AI model used for this session"),
     )
 
@@ -319,9 +319,9 @@ class ChatSession(TimestampedModel):
     @classmethod
     def get_pinned_for_user(cls, user):
         """Get pinned sessions for a user."""
-        return cls.objects.filter(
-            user=user, is_pinned=True, is_active=True
-        ).order_by("-last_message_at")
+        return cls.objects.filter(user=user, is_pinned=True, is_active=True).order_by(
+            "-last_message_at"
+        )
 
     @classmethod
     def get_session_stats(cls, user):
