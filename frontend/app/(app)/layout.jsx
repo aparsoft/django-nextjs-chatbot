@@ -2,12 +2,12 @@
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { djangoUrl, ENDPOINTS } from "@/lib/django";
-import { getValidAccessToken } from "@/lib/server-auth";
+import { getValidAccessTokenReadOnly } from "@/lib/server-auth";
 import LogoutButton from "@/app/auth/LogoutButton";
 
 export default async function AppLayout({ children }) {
   const cookieStore = await cookies();
-  const access = await getValidAccessToken(cookieStore);
+    const access = await getValidAccessTokenReadOnly(cookieStore);
   if (!access) redirect("/auth/login");
 
   // Validate by loading the user.
