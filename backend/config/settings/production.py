@@ -124,6 +124,31 @@ CELERY_BROKER_URL = config("CELERY_BROKER_URL")
 CELERY_RESULT_BACKEND = config("CELERY_RESULT_BACKEND")
 
 # =============================================================================
+# Channels (WebSocket) — production Redis with robust timeouts
+# =============================================================================
+
+_prod_redis_url = config("REDIS_URL", default="redis://localhost:6379/0")
+
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [
+                {
+                    "address": _prod_redis_url,
+                    "socket_timeout": 60,
+                    "socket_connect_timeout": 10,
+                    "health_check_interval": 30,
+                    "retry_on_timeout": True,
+                }
+            ],
+            "capacity": 1500,
+            "expiry": 300,  # 5 minutes — must cover LLM streaming responses
+        },
+    }
+}
+
+# =============================================================================
 # Logging — production
 # =============================================================================
 
