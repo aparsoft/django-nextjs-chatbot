@@ -78,6 +78,9 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
             await self.close(code=4001)
             return
 
+        # Accept must come before any send_json calls
+        await self.accept()
+
         # Verify the session belongs to this user
         self.session = await self._get_session()
         if not self.session:
@@ -93,7 +96,6 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
 
         # Join the channel group
         await self.channel_layer.group_add(self.group_name, self.channel_name)
-        await self.accept()
 
         logger.info(
             "WebSocket connected: user=%s, session=%s",
