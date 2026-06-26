@@ -30,6 +30,13 @@ async function handler(request, ctx) {
 
   const djangoRes = await fetch(target, init);
 
+  // 204/205/304 responses must not have a body — the Response constructor
+  // throws "Invalid response status code" if you pass one.
+  const NO_BODY_STATUS = new Set([204, 205, 304]);
+  if (NO_BODY_STATUS.has(djangoRes.status)) {
+    return new Response(null, { status: djangoRes.status });
+  }
+
   const body = await djangoRes.arrayBuffer();
   return new Response(body, {
     status: djangoRes.status,
