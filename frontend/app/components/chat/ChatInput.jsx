@@ -2,14 +2,30 @@
 "use client";
 
 import { useRef, useState, useEffect } from "react";
+import { Send, Loader2 } from "lucide-react";
 
 /**
  * Chat message input with auto-resizing textarea.
  * Enter to send, Shift+Enter for newline.
+ *
+ * Shows a spinner instead of the send icon while the agent is generating
+ * a response (disabled state).
+ *
+ * @param {object} props
+ * @param {function} props.onSend - Callback receiving the trimmed message text.
+ * @param {boolean} props.disabled - Whether input is disabled (agent is responding).
  */
 export default function ChatInput({ onSend, disabled }) {
   const [value, setValue] = useState("");
+  const [mounted, setMounted] = useState(false);
   const textareaRef = useRef(null);
+
+  // Avoid hydration mismatch: the disabled prop (from isStreaming) can
+  // differ between SSR and client because the WebSocket hook initializes
+  // client-side only. Render a consistent icon until after mount.
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Auto-resize the textarea.
   useEffect(() => {
@@ -50,9 +66,13 @@ export default function ChatInput({ onSend, disabled }) {
         <button
           onClick={submit}
           disabled={!value.trim() || disabled}
-          className="rounded-xl bg-gray-900 px-5 py-3 text-sm font-medium text-white transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-40"
+          className="flex items-center justify-center rounded-xl bg-gray-900 px-5 py-3 text-sm font-medium text-white transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-40"
         >
-          Send
+          {mounted && disabled ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Send className="h-4 w-4" />
+          )}
         </button>
       </div>
     </div>
