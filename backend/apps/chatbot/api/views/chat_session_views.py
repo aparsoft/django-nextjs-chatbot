@@ -134,6 +134,12 @@ class ChatSessionViewSet(viewsets.ModelViewSet):
         if not (user.is_staff or user.is_superuser or user.role == "admin"):
             qs = qs.filter(user=user)
 
+        # The default list/retrieve actions exclude soft-deleted sessions
+        # (is_active=False AND is_archived=True). The `archived` and `pinned`
+        # custom actions use their own model methods, so they bypass this.
+        if self.action in ("list", "retrieve", "update", "partial_update"):
+            qs = qs.filter(is_active=True, is_archived=False)
+
         return qs
 
     # ---- Lifecycle hooks (delegate to service) ----
