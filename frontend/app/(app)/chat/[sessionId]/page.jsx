@@ -15,7 +15,7 @@ export default function ChatSessionPage({ params }) {
 
   const { data: session } = useSession(sessionId);
   const { data: history, isLoading: historyLoading } = useChatHistory(sessionId);
-  const { sendMessage, streamingContent, isStreaming, error } = useChatSocket(sessionId);
+  const { sendMessage, streamingContent, isStreaming, isThinking, error } = useChatSocket(sessionId);
 
   const [localMessages, setLocalMessages] = useState([]);
   const scrollRef = useRef(null);
@@ -77,7 +77,7 @@ export default function ChatSessionPage({ params }) {
             <div className="flex h-full items-center justify-center">
               <p className="text-sm text-gray-400">Loading messages…</p>
             </div>
-          ) : localMessages.length === 0 && !streamingContent ? (
+          ) : localMessages.length === 0 && !streamingContent && !isThinking ? (
             <div className="flex h-full flex-col items-center justify-center">
               <div className="mb-3 text-4xl">💬</div>
               <p className="text-sm text-gray-400">
@@ -89,8 +89,12 @@ export default function ChatSessionPage({ params }) {
               {localMessages.map((msg, i) => (
                 <ChatMessage key={i} role={msg.role} content={msg.content} />
               ))}
-              {(isStreaming || streamingContent) && (
-                <ChatStream content={streamingContent} isStreaming={isStreaming} />
+                  {(isStreaming || streamingContent || isThinking) && (
+                    <ChatStream
+                      content={streamingContent}
+                      isStreaming={isStreaming}
+                      isThinking={isThinking}
+                    />
               )}
             </>
           )}
