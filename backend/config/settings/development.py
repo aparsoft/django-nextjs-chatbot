@@ -146,7 +146,8 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",  # Next.js development server
     "http://127.0.0.1:3000",
     "http://localhost:8000",
-    "http://docserve.localhost:8000",
+    "http://127.0.0.1:8000",
+    "http://0.0.0.0:8000",
 ]
 
 # CSRF Trusted Origins
@@ -154,7 +155,8 @@ CSRF_TRUSTED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "http://localhost:8000",
-    "http://docserve.localhost:8000",
+    "http://127.0.0.1:8000",
+    "http://0.0.0.0:8000",
 ]
 
 PGVECTOR_CONNECTION_STRING = config(
@@ -267,13 +269,15 @@ CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
-            "hosts": [{
-                "address": REDIS_URL,
-                "socket_timeout": 60,          # 60s read timeout (was ~5s default)
-                "socket_connect_timeout": 10,  # 10s connect timeout
-                "health_check_interval": 30,   # send PING every 30s to keep alive
-                "retry_on_timeout": True,
-            }],
+            "hosts": [
+                {
+                    "address": REDIS_URL,
+                    "socket_timeout": 60,  # 60s read timeout (was ~5s default)
+                    "socket_connect_timeout": 10,  # 10s connect timeout
+                    "health_check_interval": 30,  # send PING every 30s to keep alive
+                    "retry_on_timeout": True,
+                }
+            ],
             "capacity": 1500,
             "expiry": 300,  # 5 minutes — must be long enough for LLM streaming responses
         },
@@ -415,7 +419,7 @@ LOGGING = {
     "handlers": {
         "console": {
             "class": "logging.StreamHandler",
-            "formatter": "simple",
+            "formatter": "verbose",
             "level": "INFO",
         },
         "file": {
@@ -445,6 +449,16 @@ LOGGING = {
             "propagate": False,
         },
         "accounts": {  # Your app logger
+            "handlers": ["console", "file"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "chatbot": {  # Chatbot app — consumers, services, etc.
+            "handlers": ["console", "file"],
+            "level": "DEBUG",  # DEBUG so we see WS connect/receive/agent logs
+            "propagate": False,
+        },
+        "channels": {  # Django Channels / Daphne
             "handlers": ["console", "file"],
             "level": "INFO",
             "propagate": False,
