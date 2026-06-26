@@ -2,13 +2,14 @@
 // WebSocket helpers using react-use-websocket for robust connection management.
 //
 // Backend protocol (server → client):
-//   { "type": "token",   "content": "..." }  — streaming chunk
-//   { "type": "message", "content": "..." }  — final complete message
-//   { "type": "error",   "content": "..." }  — error message
-//   { "type": "done" }                        — stream finished
+//   { "type": "stream_start", "timestamp": ... }  — generation started
+//   { "type": "token",   "content": "..." }         — streaming chunk
+//   { "type": "message", "content": "..." }         — final complete response
+//   { "type": "error",   "content": "..." }         — error message
+//   { "type": "done" }                              — stream finished
 //
 // Backend protocol (client → server):
-//   { "message": "user text" }                — send a chat message
+//   { "message": "user text" }                      — send a chat message
 
 /**
  * Fetch a short-lived access token for WebSocket auth.
