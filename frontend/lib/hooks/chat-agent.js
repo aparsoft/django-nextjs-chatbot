@@ -10,7 +10,7 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, useCallback } from "react";
-import useWebSocket from "react-use-websocket";
+import useWebSocket, { ReadyState } from "react-use-websocket";
 import { keys } from "@/lib/query-keys";
 import { getWsToken, buildWsUrl } from "@/lib/ws";
 
@@ -238,7 +238,7 @@ export function useChatSocket(sessionId) {
       pendingChunkContentRef.current = "";
       setIsStreaming(true);
       setIsThinking(true);
-      if (connectionStatus === "Open") {
+      if (connectionStatus === ReadyState.OPEN) {
         sendJsonMessage({ message });
       } else {
         // Queue the message — it'll be sent in onOpen.
