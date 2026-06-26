@@ -345,6 +345,7 @@ class ChatAgentOrchestrator:
         session: ChatSession,
         system_prompt: Optional[str] = None,
         recursion_limit: int = 25,
+        async_checkpointer: Optional["AsyncPostgresSaver"] = None,
     ):
         self.session = session
         self.user = session.user
@@ -353,8 +354,9 @@ class ChatAgentOrchestrator:
         # Tools for this user
         self.tools = load_tools_for_user(self.user)
 
-        # Checkpointer (PostgresSaver singleton)
-        self.checkpointer = get_checkpointer()
+        # Checkpointer — use the async saver when provided (for WebSocket
+        # consumers), otherwise fall back to the sync PostgresSaver.
+        self.checkpointer = async_checkpointer or get_checkpointer()
 
         # Middleware — summarization before LLM calls
         self.middleware = [SummarizationMiddleware(session)]
@@ -616,6 +618,7 @@ class AgentService:
         session: ChatSession,
         system_prompt: Optional[str] = None,
         recursion_limit: int = 25,
+        async_checkpointer: Optional["AsyncPostgresSaver"] = None,
     ) -> ChatAgentOrchestrator:
         """
         Create and return a ``ChatAgentOrchestrator`` for the given session.
@@ -624,6 +627,9 @@ class AgentService:
             session: ChatSession instance (provides user, model, temperature).
             system_prompt: Override the default system prompt.
             recursion_limit: Max agent steps before stopping.
+            async_checkpointer: AsyncPostgresSaver for WebSocket/async use.
+                When provided, the orchestrator uses it instead of the sync
+                PostgresSaver so LangGraph's ``astream()`` works correctly.
 
         Returns:
             A ready-to-use ``ChatAgentOrchestrator``.
@@ -632,6 +638,7 @@ class AgentService:
             session=session,
             system_prompt=system_prompt,
             recursion_limit=recursion_limit,
+            async_checkpointer=async_checkpointer,
         )
 
     @staticmethod
@@ -692,6 +699,18 @@ class AgentService:
         Yields:
             str: Content chunks from the LLM.
         """
-        orchestrator = AgentService.create_orchestrator(session=session)
+        # Ensure the async checkpointer (AsyncPostgresSaver) is initialised
+        # before constructing the orchestrator — LangGraph's astream() calls
+        # async methods (aget_tuple, aput) on the checkpointer, which the sync
+        # PostgresSaver does not implement.
+        async_cp = await get_async_checkpointer()
+
+        # ChatAgentOrchestrator.__init__ performs sync ORM calls
+        # (session.user, load_tools_for_user, _build_system_prompt, etc.)
+        # which are forbidden inside an async context. Offload the entire
+        # construction to a thread via sync_to_async.
+        orchestrator = await database_sync_to_async(AgentService.create_orchestrator)(
+            session=session, async_checkpointer=async_cp
+        )
         async for chunk in orchestrator.astream(user_message):
             yield chunk
