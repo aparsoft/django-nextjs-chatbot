@@ -29,7 +29,7 @@ export default async function AppLayout({ children }) {
 
   return (
     <div className="flex min-h-screen">
-      <aside className="w-60 border-r p-4">
+      <aside className="w-28 border-r p-4">
         <nav className="flex flex-col gap-2">
           {navItems.map((item) => (
             <a
