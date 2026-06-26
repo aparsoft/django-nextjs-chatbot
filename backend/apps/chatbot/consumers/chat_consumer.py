@@ -1,26 +1,38 @@
 """
-Chat WebSocket Consumer
+Chat WebSocket Consumer — Async Streaming with LangGraph Agent
 
-Handles real-time chat communication over WebSocket.
-Uses the AgentService orchestrator for LangGraph agent interactions.
+Handles real-time chat communication over WebSocket with **true async
+streaming** of LLM tokens.  Uses ``AgentService.astream()`` which calls
+LangGraph's ``astream(stream_mode="messages")`` to yield individual token
+chunks as they arrive — no ``database_sync_to_async`` blocking, no
+synchronous agent calls.
 
 Protocol:
     CONNECT  → authenticate via JWT token in query string
     SEND     → {"message": "Hello!"}
-    RECEIVE  → {"type": "token", "content": "..."}  (streaming tokens)
-               {"type": "message", "content": "..."} (final message)
-               {"type": "error", "content": "..."}   (errors)
-               {"type": "done"}                      (stream complete)
+    RECEIVE  → {"type": "stream_start"}               (generation started)
+               {"type": "token", "content": "..."}     (streaming chunk)
+               {"type": "message", "content": "..."}   (final full response)
+               {"type": "error", "content": "..."}      (errors)
+               {"type": "done"}                         (stream complete)
 
 Usage (frontend):
     const ws = new WebSocket(
         `ws://localhost:8000/ws/chat/${sessionId}/?token=${accessToken}`
     );
     ws.send(JSON.stringify({message: "Hello!"}));
+
+    ws.onmessage = (e) => {
+        const data = JSON.parse(e.data);
+        if (data.type === "token")      appendToUI(data.content);
+        if (data.type === "done")       markComplete();
+        if (data.type === "error")      showError(data.content);
+    };
 """
 
 import json
 import logging
+import time
 
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 from channels.db import database_sync_to_async
@@ -43,10 +55,11 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
         {"message": "Hello!"}
 
     Messages (server → client):
-        {"type": "token",    "content": "..."}   — streaming chunk
-        {"type": "message",  "content": "..."}   — complete AI response
-        {"type": "error",    "content": "..."}   — error description
-        {"type": "done"}                         — stream finished
+        {"type": "stream_start"}                    — generation started
+        {"type": "token",    "content": "..."}      — streaming chunk
+        {"type": "message",  "content": "..."}       — complete AI response
+        {"type": "error",    "content": "..."}       — error description
+        {"type": "done"}                             — stream finished
     """
 
     # ------------------------------------------------------------------
@@ -66,8 +79,8 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
             return
 
         # Verify the session belongs to this user
-        session = await self._get_session()
-        if not session:
+        self.session = await self._get_session()
+        if not self.session:
             await self.send_json({"type": "error", "content": "Session not found"})
             await self.close(code=4004)
             return
@@ -75,6 +88,7 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
         # Initialise the async checkpointer pool on first connection
         # (idempotent — subsequent calls return the existing singleton)
         from chatbot.services.agent_service import get_async_checkpointer
+
         await get_async_checkpointer()
 
         # Join the channel group
@@ -120,14 +134,25 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
         )
 
         try:
-            # Run the agent synchronously inside a thread
-            result = await database_sync_to_async(self._run_agent)(message)
+            # Signal that streaming is starting
+            await self.send_json(
+                {
+                    "type": "stream_start",
+                    "timestamp": time.time(),
+                }
+            )
 
-            # Send the final response
+            # Stream tokens from the agent directly (no thread blocking)
+            accumulated_response = ""
+            async for chunk in self._astream_agent(message):
+                accumulated_response += chunk
+                await self.send_json({"type": "token", "content": chunk})
+
+            # Send the final complete response
             await self.send_json(
                 {
                     "type": "message",
-                    "content": result["response"],
+                    "content": accumulated_response,
                 }
             )
 
@@ -155,17 +180,20 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _run_agent(self, message: str) -> dict:
+    async def _astream_agent(self, message: str):
         """
-        Run the agent synchronously (called inside database_sync_to_async).
+        Async generator that yields content chunks from the agent.
 
-        Returns:
-            dict with "response" key.
+        Delegates to ``AgentService.astream()`` which uses LangGraph's
+        ``astream(stream_mode="messages")`` for real-time token streaming.
         """
         from chatbot.services import AgentService
 
-        session = ChatSession.objects.get(id=self.session_id)
-        return AgentService.chat(session=session, user_message=message)
+        async for chunk in AgentService.astream(
+            session=self.session,
+            user_message=message,
+        ):
+            yield chunk
 
     async def _authenticate(self):
         """
