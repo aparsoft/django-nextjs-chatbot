@@ -1,12 +1,18 @@
 // lib/hooks/chat-agent.js
 // TanStack Query hooks for chat agent messaging + WebSocket streaming.
 // Uses react-use-websocket for robust connection management with auto-reconnect.
+//
+// Streaming protocol (server → client):
+//   stream_start → token (×N) → message → done
+//
+// The hook uses throttled chunk updates (60fps max) to prevent React
+// render storms when the LLM emits tokens faster than the browser can paint.
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, useCallback } from "react";
 import useWebSocket from "react-use-websocket";
 import { keys } from "@/lib/query-keys";
-import { getWsToken, buildWsUrl, parseWsMessage, buildChatPayload } from "@/lib/ws";
+import { getWsToken, buildWsUrl } from "@/lib/ws";
 
 async function proxyFetch(path, options = {}) {
   const res = await fetch(`/api/proxy/chatbot/${path.replace(/^\//, "")}`, {
@@ -53,26 +59,71 @@ export function useSendMessage() {
  * Custom hook that manages a WebSocket connection for real-time chat
  * using react-use-websocket for robust auto-reconnect and lifecycle management.
  *
+ * Implements throttled streaming (60fps max) to prevent React render depth
+ * errors when the LLM emits tokens faster than the browser can paint.
+ *
  * @param {string} sessionId - Chat session UUID.
- * @returns {{ sendMessage, streamingContent, isStreaming, error, connectionStatus }}
+ * @returns {{ sendMessage, streamingContent, isStreaming, isThinking, error, connectionStatus }}
  */
 export function useChatSocket(sessionId) {
   const qc = useQueryClient();
   const [token, setToken] = useState(null);
   const [streamingContent, setStreamingContent] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isThinking, setIsThinking] = useState(false);
   const [error, setError] = useState(null);
   const pendingMessageRef = useRef(null);
 
+  // Throttling refs — prevent React render storms from rapid token chunks.
+  // The LLM can emit tokens faster than 60fps; we batch them to one update per frame.
+  const chunkUpdateTimeoutRef = useRef(null);
+  const pendingChunkContentRef = useRef("");
+  const lastChunkUpdateRef = useRef(0);
+  const MIN_CHUNK_DELAY = 16; // ~60fps
+
+  // Perform the actual state update with the latest accumulated content.
+  const performChunkUpdate = useCallback(() => {
+    lastChunkUpdateRef.current = Date.now();
+    setStreamingContent(pendingChunkContentRef.current);
+  }, []);
+
+  // Throttled update — batches rapid chunks into a single state update per frame.
+  const throttledChunkUpdate = useCallback(
+    (newContent) => {
+      if (chunkUpdateTimeoutRef.current) {
+        clearTimeout(chunkUpdateTimeoutRef.current);
+      }
+      pendingChunkContentRef.current = newContent;
+
+      const now = Date.now();
+      const elapsed = now - lastChunkUpdateRef.current;
+
+      if (elapsed >= MIN_CHUNK_DELAY) {
+        performChunkUpdate();
+      } else {
+        chunkUpdateTimeoutRef.current = setTimeout(() => {
+          performChunkUpdate();
+        }, MIN_CHUNK_DELAY - elapsed);
+      }
+    },
+    [performChunkUpdate],
+  );
+
   // Fetch a short-lived WS token when the session changes.
-    // Skip if sessionId is missing or "new" (not a real session yet).
+  // Skip if sessionId is missing or "new" (not a real session yet).
   useEffect(() => {
     if (!sessionId || sessionId === "new" || sessionId === "undefined") return;
     let cancelled = false;
     getWsToken()
-      .then((t) => { if (!cancelled) setToken(t); })
-      .catch((e) => { if (!cancelled) setError(e.message); });
-    return () => { cancelled = true; };
+      .then((t) => {
+        if (!cancelled) setToken(t);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e.message);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [sessionId]);
 
   // Build the WS URL once we have a token.
@@ -96,10 +147,12 @@ export function useChatSocket(sessionId) {
       },
       onClose: () => {
         setIsStreaming(false);
+        setIsThinking(false);
       },
       onError: () => {
         setError("WebSocket connection error");
         setIsStreaming(false);
+        setIsThinking(false);
       },
     },
     !!wsUrl, // connect only when we have a URL
@@ -109,33 +162,82 @@ export function useChatSocket(sessionId) {
   useEffect(() => {
     if (!lastJsonMessage) return;
     const msg = lastJsonMessage;
+
     switch (msg.type) {
-      case "token":
-        setStreamingContent((prev) => prev + msg.content);
-        break;
-      case "message":
-        // Final message — invalidate history so the query refetches.
-        qc.invalidateQueries({ queryKey: keys.chatHistory(sessionId) });
-        break;
-      case "done":
-        setIsStreaming(false);
+      case "stream_start":
+        // Generation has started — show thinking indicator, clear old content.
+        setIsThinking(true);
+        setIsStreaming(true);
         setStreamingContent("");
+        pendingChunkContentRef.current = "";
+        lastChunkUpdateRef.current = 0;
+        if (chunkUpdateTimeoutRef.current) {
+          clearTimeout(chunkUpdateTimeoutRef.current);
+          chunkUpdateTimeoutRef.current = null;
+        }
+        break;
+
+      case "token":
+        // Streaming chunk — accumulate with throttled updates.
+        setIsThinking(false);
+        throttledChunkUpdate(pendingChunkContentRef.current + msg.content);
+        break;
+
+      case "message":
+        // Final complete response — flush any pending throttled content.
+        if (chunkUpdateTimeoutRef.current) {
+          clearTimeout(chunkUpdateTimeoutRef.current);
+          chunkUpdateTimeoutRef.current = null;
+        }
+        setStreamingContent(msg.content || pendingChunkContentRef.current);
+        // Invalidate history so the query refetches from the checkpointer.
         qc.invalidateQueries({ queryKey: keys.chatHistory(sessionId) });
         break;
+
+      case "done":
+        // Stream finished — reset all streaming state.
+        setIsStreaming(false);
+        setIsThinking(false);
+        if (chunkUpdateTimeoutRef.current) {
+          clearTimeout(chunkUpdateTimeoutRef.current);
+          chunkUpdateTimeoutRef.current = null;
+        }
+        setStreamingContent("");
+        pendingChunkContentRef.current = "";
+        qc.invalidateQueries({ queryKey: keys.chatHistory(sessionId) });
+        break;
+
       case "error":
         setError(msg.content || "Server error");
         setIsStreaming(false);
+        setIsThinking(false);
         setStreamingContent("");
+        pendingChunkContentRef.current = "";
+        if (chunkUpdateTimeoutRef.current) {
+          clearTimeout(chunkUpdateTimeoutRef.current);
+          chunkUpdateTimeoutRef.current = null;
+        }
         break;
     }
-  }, [lastJsonMessage, sessionId, qc]);
+  }, [lastJsonMessage, sessionId, qc, throttledChunkUpdate]);
+
+  // Clean up any pending throttle timer on unmount.
+  useEffect(() => {
+    return () => {
+      if (chunkUpdateTimeoutRef.current) {
+        clearTimeout(chunkUpdateTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Send a message — queues if the socket isn't open yet.
   const sendMessage = useCallback(
     (message) => {
       setError(null);
       setStreamingContent("");
+      pendingChunkContentRef.current = "";
       setIsStreaming(true);
+      setIsThinking(true);
       if (connectionStatus === "Open") {
         sendJsonMessage({ message });
       } else {
@@ -146,5 +248,12 @@ export function useChatSocket(sessionId) {
     [connectionStatus, sendJsonMessage],
   );
 
-  return { sendMessage, streamingContent, isStreaming, error, connectionStatus };
+  return {
+    sendMessage,
+    streamingContent,
+    isStreaming,
+    isThinking,
+    error,
+    connectionStatus,
+  };
 }
