@@ -69,9 +69,9 @@ export default function ChatInput({ onSend, disabled }) {
           className="flex items-center justify-center rounded-xl bg-gray-900 px-5 py-3 text-sm font-medium text-white transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-40"
         >
           {mounted && disabled ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
+            <Loader2 suppressHydrationWarning className="h-4 w-4 animate-spin" />
           ) : (
-            <Send className="h-4 w-4" />
+              <Send suppressHydrationWarning className="h-4 w-4" />
           )}
         </button>
       </div>
