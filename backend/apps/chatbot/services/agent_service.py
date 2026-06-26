@@ -1,12 +1,12 @@
 """
-Agent Service — LangGraph ReAct Agent with PGVector Memory
+Agent Service — LangGraph ReAct Agent with PGVector Memory & Async Streaming
 
 Builds a production-ready ``create_agent`` graph (from ``langchain.agents``)
-backed by ``PostgresSaver`` for conversation checkpointing.  Wraps everything
-in an orchestrator that wires together:
+backed by ``PostgresSaver`` / ``AsyncPostgresSaver`` for conversation
+checkpointing.  Wraps everything in an orchestrator that wires together:
 
 - LLM (via ``"openai:gpt-4o-mini"`` model strings or ChatOpenAI instances)
-- PostgresSaver checkpointer (PG_CHECKPOINT_URI)
+- PostgresSaver checkpointer (PG_CHECKPOINT_URI) — sync + async singletons
 - SummarizationMiddleware (compresses long conversations before LLM calls)
 - ToolService (loads enabled LangChain tools)
 - VectorStorageService (RAG document retrieval as a tool)
@@ -15,14 +15,19 @@ Uses the **latest LangChain v1.x / LangGraph v1.x** API:
     - ``langchain.agents.create_agent`` (replaces deprecated ``create_react_agent``)
     - ``system_prompt=`` (replaces ``prompt=``)
     - ``middleware=`` (replaces ``pre_model_hook=`` / ``post_model_hook=``)
+    - ``astream()`` for real-time token streaming over WebSockets
 
 Usage:
     from chatbot.services import AgentService
 
-    # One-shot convenience
+    # One-shot convenience (sync — Django views / Celery)
     result = AgentService.chat(session, "Hello, who are you?")
 
-    # Full orchestrator (for streaming / multi-turn)
+    # Async streaming (WebSocket consumers)
+    async for chunk in AgentService.astream(session, "Hello"):
+        print(chunk)  # str — each token chunk
+
+    # Full orchestrator (for advanced use)
     orchestrator = AgentService.create_orchestrator(session)
     result = orchestrator.invoke("Tell me about Python")
 
@@ -38,12 +43,14 @@ Architecture:
     │  │   system_prompt: session-based                     │  │
     │  └────────────────────────────────────────────────────┘  │
     │  + session analytics, token tracking                     │
+    │  + async streaming via astream()                         │
     └──────────────────────────────────────────────────────────┘
 """
 
 import logging
 from typing import Any, Dict, List, Optional, TypedDict
 
+from channels.db import database_sync_to_async
 from django.conf import settings
 from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware
@@ -375,7 +382,13 @@ class ChatAgentOrchestrator:
     # ------------------------------------------------------------------
 
     def _build_system_prompt(self) -> str:
-        """Compose a default system prompt from user preferences."""
+        """Compose a default system prompt from user preferences.
+
+        Delegates to ``UserPreference.get_effective_system_prompt()`` which
+        respects the ``use_custom_system_prompt`` boolean gate — only uses
+        the custom prompt when the user has explicitly enabled it.
+        Priority: custom prompt (if enabled) → template → platform default.
+        """
         base = (
             "You are a helpful, knowledgeable AI assistant. "
             "Be concise, accurate, and friendly.\n\n"
@@ -386,9 +399,9 @@ class ChatAgentOrchestrator:
         )
         try:
             prefs = self.user.ai_preferences
-            custom = getattr(prefs, "custom_system_prompt", None)
-            if custom:
-                base = custom
+            # Use the model's priority-aware method — respects
+            # use_custom_system_prompt flag, falls back to platform default
+            return prefs.get_effective_system_prompt()
         except Exception:
             pass
 
@@ -483,6 +496,75 @@ class ChatAgentOrchestrator:
         self.session.update_analytics(message_count=2)
         if self.session.title == "New Conversation":
             self.session.update_title(user_message)
+
+    # ------------------------------------------------------------------
+    # Async stream (async generator — for WebSocket consumers)
+    # ------------------------------------------------------------------
+
+    async def astream(self, user_message: str):
+        """
+        Asynchronously yield **content chunks** for real-time WebSocket output.
+
+        Uses LangGraph's ``astream`` with ``stream_mode="messages"`` to
+        stream individual LLM tokens as they arrive.  Only the *content*
+        of each chunk is yielded (a ``str``), so the consumer can send
+        it directly to the client.
+
+        After the stream completes, session analytics and auto-title
+        are updated via ``database_sync_to_async``.
+
+        Args:
+            user_message: The human's message text.
+
+        Yields:
+            str: Each content chunk from the LLM.
+        """
+        logger.info(
+            "Agent astream: session=%s, msg_len=%d",
+            self.session.thread_id,
+            len(user_message),
+        )
+
+        accumulated_response = ""
+        tokens_used = 0
+
+        async for event in self.agent.astream(
+            {"messages": [HumanMessage(content=user_message)]},
+            config=self.config,
+            stream_mode="messages",
+        ):
+            # stream_mode="messages" yields (message_chunk, metadata) tuples
+            if isinstance(event, tuple) and len(event) >= 1:
+                chunk = event[0]
+            else:
+                chunk = event
+
+            # Extract content from the chunk
+            content = getattr(chunk, "content", None)
+            if content:
+                accumulated_response += content
+                yield content
+
+            # Capture token usage from the final chunk
+            usage = getattr(chunk, "usage_metadata", None)
+            if usage:
+                tokens_used = usage.get("total_tokens", 0)
+
+        # Update analytics after streaming completes (DB write — offload)
+        await database_sync_to_async(self.session.update_analytics)(
+            message_count=2, tokens_used=tokens_used or None
+        )
+
+        # Auto-title on first exchange
+        if self.session.title == "New Conversation":
+            await database_sync_to_async(self.session.update_title)(user_message)
+
+        logger.info(
+            "Agent astream complete: session=%s, response_len=%d, tokens=%d",
+            self.session.thread_id,
+            len(accumulated_response),
+            tokens_used,
+        )
 
     # ------------------------------------------------------------------
     # Chat history helpers
@@ -589,3 +671,27 @@ class AgentService:
         """
         orchestrator = AgentService.create_orchestrator(session=session)
         yield from orchestrator.stream(user_message)
+
+    # ------------------------------------------------------------------
+    # Async streaming (for WebSocket consumers)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def astream(session: ChatSession, user_message: str):
+        """
+        Async streaming convenience: yields **content chunks** (str).
+
+        Designed for WebSocket consumers — each yielded chunk is a
+        ``str`` ready to be sent to the client as a ``{"type": "token"}``
+        message.
+
+        Args:
+            session: ChatSession to chat in.
+            user_message: The user's message.
+
+        Yields:
+            str: Content chunks from the LLM.
+        """
+        orchestrator = AgentService.create_orchestrator(session=session)
+        async for chunk in orchestrator.astream(user_message):
+            yield chunk
